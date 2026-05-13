@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { speakText } from "@/lib/speakText";
 import "../lev-nikol.css";
 
 export const Route = createFileRoute("/")({
@@ -27,7 +28,21 @@ export const Route = createFileRoute("/")({
 function Index() {
   useEffect(() => {
     document.body.classList.add("ln-body");
+    const handleSoundClick = (e: MouseEvent) => {
+      const btn = (e.target as Element).closest(".sound-btn");
+      if (btn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = btn.getAttribute("data-text");
+        if (text) {
+          speakText(text);
+        }
+      }
+    };
+    document.body.addEventListener("click", handleSoundClick);
+
     return () => {
+      document.body.removeEventListener("click", handleSoundClick);
       document.body.classList.remove("ln-body", "lib-page");
     };
   }, []);
@@ -210,6 +225,11 @@ function Index() {
       );
     }
 
+    function renderSoundButton(text?: string) {
+      if (!text) return "";
+      return `<button class="sound-btn" data-text="${escapeHtml(text)}" title="Listen" aria-label="Listen">🔊</button>`;
+    }
+
     function tryExtract(buffer: string): { full: boolean; obj: any } {
       try {
         const obj = JSON.parse(buffer);
@@ -234,7 +254,7 @@ function Index() {
 
     function renderStage1(obj: any) {
       let html = "";
-      if (obj.word) html += `<div class="word fade-up">${escapeHtml(obj.word)}</div>`;
+      if (obj.word) html += `<div class="word fade-up">${escapeHtml(obj.word)} ${renderSoundButton(obj.word)}</div>`;
       if (obj.level || obj.frequency) {
         html += `<div class="badges fade-up" style="animation-delay:.05s">`;
         if (obj.level) html += `<span class="badge cefr">${escapeHtml(obj.level)}</span>`;
@@ -265,7 +285,7 @@ function Index() {
         examples
           .map(
             (e: any) =>
-              `<div class="ex-item"><div class="ex-en">${escapeHtml(e?.en || "")}</div><div class="ex-ru">${escapeHtml(e?.ru || "")}</div></div>`,
+              `<div class="ex-item"><div class="ex-en">${escapeHtml(e?.en || "")} ${renderSoundButton(e?.en)}</div><div class="ex-ru">${escapeHtml(e?.ru || "")}</div></div>`,
           )
           .join("") +
         `</div>`
@@ -310,7 +330,7 @@ function Index() {
                 ${(g?.items || [])
                   .map(
                     (it: any) =>
-                      `<div class="coll-row"><span class="coll-phrase">${escapeHtml(it?.phrase || "")}</span><span class="coll-tr">${escapeHtml(it?.translation || "")}</span></div>`,
+                      `<div class="coll-row"><span class="coll-phrase">${escapeHtml(it?.phrase || "")} ${renderSoundButton(it?.phrase)}</span><span class="coll-tr">${escapeHtml(it?.translation || "")}</span></div>`,
                   )
                   .join("")}
               </div>
@@ -345,7 +365,7 @@ function Index() {
             <div class="ctx-block">
               <div class="ctx-head">
                 <span class="ctx-freq">${escapeHtml(s?.frequency || "")}</span>
-                <span class="ctx-title">${escapeHtml(s?.word || "")}</span>
+                <span class="ctx-title">${escapeHtml(s?.word || "")} ${renderSoundButton(s?.word)}</span>
               </div>
               ${s?.nuance ? `<div class="ctx-note">${escapeHtml(s.nuance)}</div>` : ""}
               ${renderExamples(s?.examples || [])}
@@ -363,7 +383,7 @@ function Index() {
           .map(
             (p: any) => `
               <div class="ex-item">
-                <div class="ex-en"><span class="ctx-freq">${escapeHtml(p?.frequency || "")}</span> ${escapeHtml(p?.phrase || "")}</div>
+                <div class="ex-en"><span class="ctx-freq">${escapeHtml(p?.frequency || "")}</span> ${escapeHtml(p?.phrase || "")} ${renderSoundButton(p?.phrase)}</div>
                 <div class="ex-ru">${escapeHtml(p?.translation || "")}${p?.note ? ` <span class="ph-note">(${escapeHtml(p.note)})</span>` : ""}</div>
               </div>
             `,
@@ -517,21 +537,22 @@ function Index() {
       return "";
     }
 
-    function renderModeShell(obj: any, lightData: any, fullReady: boolean): string {
+    function renderModeShell(obj: any, lightData: any, fullStatus: "idle" | "loading" | "ready"): string {
       const hasLight = lightData && (typeof lightData === "string" ? lightData.trim() : true);
       const lightHtml = hasLight
         ? renderLight(lightData)
         : `<div class="light-block" style="color:var(--text-muted);">…</div>`;
       const fullHtml =
-        fullReady && obj
+        fullStatus === "ready" && obj
           ? `<div data-stage1>${renderStage1(obj)}</div>${renderStage2(obj)}`
           : "";
-      const fullDisabled = !fullReady;
+      const fullDisabled = fullStatus === "loading";
+      const tooltip = fullStatus === "idle" ? ` title="${currentLang === "en" ? "Click to generate" : "Нажмите для генерации"}"` : "";
       return `
         <div class="mode-tabs">
           <button class="mode-tab active" data-mt="light" type="button">Light</button>
-          <button class="mode-tab" data-mt="full" type="button"${fullDisabled ? " disabled" : ""}>
-            <span>Full</span>${fullDisabled ? '<span class="mt-spin" aria-hidden="true"></span>' : ""}
+          <button class="mode-tab" data-mt="full" type="button"${fullDisabled ? " disabled" : ""}${tooltip}>
+            <span>Full</span>${fullStatus === "loading" ? '<span class="mt-spin" aria-hidden="true"></span>' : ""}
           </button>
         </div>
         <div class="mode-pane" data-pane="light">${lightHtml}</div>
@@ -585,15 +606,22 @@ function Index() {
         const raw = localStorage.getItem(LS_KEY);
         if (raw) return JSON.parse(raw);
       } catch {}
-      return { history: [], lang: "ru" };
+      return { history: [], words: [], folders: [], lang: "ru" };
     }
     function saveStore(s: any) {
       try {
-        localStorage.setItem(LS_KEY, JSON.stringify({ history: s.history, lang: s.lang }));
+        localStorage.setItem(LS_KEY, JSON.stringify({ 
+          history: s.history, 
+          words: s.words, 
+          folders: s.folders, 
+          lang: s.lang 
+        }));
       } catch {}
     }
     const store: any = loadStore();
     if (!Array.isArray(store.history)) store.history = [];
+    if (!Array.isArray(store.words)) store.words = [];
+    if (!Array.isArray(store.folders)) store.folders = [];
     if (!store.lang) store.lang = "ru";
     let currentLang: "ru" | "en" = store.lang;
 
@@ -631,10 +659,16 @@ function Index() {
 
     async function loadCloudData() {
       if (!currentUserId) {
-        foldersList = [];
-        wordsList = [];
+        foldersList = (store.folders || []).map((f: any) => ({ id: f.id, name: f.name }));
+        wordsList = (store.words || []).map((w: any, i: number) => ({
+          id: "local-w-" + i,
+          folder_id: w.folder_id || "__all__",
+          word: w.word,
+          created_at: w.at || new Date().toISOString(),
+          breakdown: w.breakdown,
+        }));
         historyList = (store.history || []).map((h: any, i: number) => ({
-          id: "local-" + i,
+          id: "local-h-" + i,
           word: h.word,
           translation: h.translation || "",
           mode: h.mode || "word",
@@ -991,26 +1025,22 @@ function Index() {
           if (obj.mode === "context") html = renderContext(obj);
           else if (obj.mode === "sentence") html = renderSentence(obj);
           else if (obj.mode === "ru-map") html = renderRuMap(obj);
-          else if (obj._light) html = renderModeShell(obj, obj._light, true);
+          else if (obj._light) html = renderModeShell(obj, obj._light, "ready");
           else html = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
           inner.innerHTML = html;
           if (obj.word) {
             const row = document.createElement("div");
             row.className = "save-row";
             row.style.marginTop = "16px";
-            if (!currentUserId) {
-              row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Sign in to save" : "Войди, чтобы сохранять слова")}</div>`;
+            const saved = findSavedByWord(obj.word);
+            if (saved) {
+              row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
             } else {
-              const saved = findSavedByWord(obj.word);
-              if (saved) {
-                row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
-              } else {
-                row.innerHTML = `<button class="btn-save">${escapeHtml(t("save.btn"))}</button>`;
-                row.querySelector("button")!.addEventListener("click", (ev) => {
-                  ev.stopPropagation();
-                  openFolderPickerFor(row, obj);
-                });
-              }
+              row.innerHTML = `<button class="btn-save">${escapeHtml(t("save.btn"))}</button>`;
+              row.querySelector("button")!.addEventListener("click", (ev) => {
+                ev.stopPropagation();
+                openFolderPickerFor(row, obj);
+              });
             }
             inner.appendChild(row);
           }
@@ -1035,10 +1065,17 @@ function Index() {
       }
     }
     async function addFolder(name: string): Promise<Folder | null> {
-      name = (name || "").trim();
-      if (!name || !currentUserId) return null;
+      if (!name) return null;
       const existing = foldersList.find((f) => f.name === name);
       if (existing) return existing;
+      if (!currentUserId) {
+        const id = "loc-f-" + Date.now();
+        const f = { id, name };
+        foldersList.push(f);
+        store.folders.push(f);
+        saveStore(store);
+        return f;
+      }
       const { data, error } = await supabase
         .from("folders")
         .insert({ user_id: currentUserId, name })
@@ -1049,13 +1086,43 @@ function Index() {
       return { id: data.id, name: data.name };
     }
     async function removeFolderById(id: string) {
-      await supabase.from("folders").delete().eq("id", id);
+      if (currentUserId && !id.startsWith("loc-f-")) {
+        await supabase.from("folders").delete().eq("id", id);
+      } else {
+        store.folders = store.folders.filter((f: any) => f.id !== id);
+        store.words = store.words.filter((w: any) => w.folder_id !== id);
+        saveStore(store);
+      }
       foldersList = foldersList.filter((f) => f.id !== id);
       wordsList = wordsList.filter((w) => w.folder_id !== id);
     }
     async function addWordToFolder(folderId: string, word: string, breakdown: any) {
-      if (!currentUserId) return null;
       const existing = wordsList.find((w) => w.folder_id === folderId && w.word === word);
+      if (!currentUserId) {
+        if (existing) {
+          existing.breakdown = breakdown;
+          store.words = store.words.map((w: any) => 
+            (w.word === word && w.folder_id === folderId) ? { ...w, breakdown } : w
+          );
+        } else {
+          const entry: WordRow = {
+            id: "loc-w-" + Date.now(),
+            folder_id: folderId,
+            word,
+            created_at: new Date().toISOString(),
+            breakdown,
+          };
+          wordsList.unshift(entry);
+          store.words.unshift({
+            folder_id: folderId,
+            word,
+            breakdown,
+            at: entry.created_at
+          });
+        }
+        saveStore(store);
+        return existing || wordsList[0];
+      }
       if (existing) {
         const { data } = await supabase
           .from("words")
@@ -1088,14 +1155,23 @@ function Index() {
       return entry;
     }
     async function removeWordById(id: string) {
-      await supabase.from("words").delete().eq("id", id);
+      if (currentUserId && !id.startsWith("loc-w-")) {
+        await supabase.from("words").delete().eq("id", id);
+      } else {
+        const wordToRem = wordsList.find(w => w.id === id);
+        if (wordToRem) {
+          store.words = store.words.filter((w: any) => !(w.word === wordToRem.word && w.folder_id === wordToRem.folder_id));
+          saveStore(store);
+        }
+      }
       wordsList = wordsList.filter((w) => w.id !== id);
     }
     function findSavedByWord(word: string): (WordRow & { folderName: string }) | null {
       const w = wordsList.find((x) => x.word === word);
       if (!w) return null;
+      if (w.folder_id === "__all__") return { ...w, folderName: t("lib.all") };
       const f = foldersList.find((f) => f.id === w.folder_id);
-      return { ...w, folderName: f?.name || "" };
+      return { ...w, folderName: f?.name || t("lib.all") };
     }
 
     let lastBreakdown: any = null;
@@ -1109,11 +1185,6 @@ function Index() {
       row.className = "save-row fade-up";
       row.style.animationDelay = ".4s";
 
-      if (!currentUserId) {
-        row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Sign in to save" : "Войди, чтобы сохранять слова")}</div>`;
-        results!.appendChild(row);
-        return;
-      }
 
       const savedEntry = findSavedByWord(word);
       if (savedEntry) {
@@ -1265,10 +1336,6 @@ function Index() {
     function renderLibraryFolders() {
       const el = document.getElementById("libFolders");
       if (!el) return;
-      if (!currentUserId) {
-        el.innerHTML = `<div class="saved-folder-note" style="padding:14px;">${escapeHtml(currentLang === "en" ? "Sign in to view your folders" : "Войди, чтобы увидеть свои папки")}</div>`;
-        return;
-      }
       let html = "";
       // "All words" tab — always first, never deletable
       html += `<button class="lib-folder lib-folder--all ${activeFolder === "__all__" ? "active" : ""}" data-folder="__all__">
@@ -1344,15 +1411,6 @@ function Index() {
     function renderLibraryWords() {
       const el = document.getElementById("libWords");
       if (!el) return;
-      if (!currentUserId) {
-        el.innerHTML = `
-          <div class="empty-state">
-            <div class="empty-icon">🔒</div>
-            <div class="empty-title">${escapeHtml(currentLang === "en" ? "Sign in to see your words" : "Войди, чтобы увидеть свои слова")}</div>
-            <div class="empty-sub">${escapeHtml(currentLang === "en" ? "Your saved words will appear here." : "Твои сохранённые слова появятся здесь.")}</div>
-          </div>`;
-        return;
-      }
       const baseWords =
         activeFolder === "__all__"
           ? wordsList.slice()
@@ -1487,7 +1545,7 @@ function Index() {
           if (obj.mode === "context") {
             inner.innerHTML = renderContext(obj);
           } else if (obj._light) {
-            inner.innerHTML = renderModeShell(obj, obj._light, true);
+            inner.innerHTML = renderModeShell(obj, obj._light, "ready");
           } else {
             inner.innerHTML = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
           }
@@ -1627,116 +1685,80 @@ function Index() {
         return;
       }
 
-      // English input → fire Light + Full in parallel
+      // English input → fire Light immediately, Full on demand
       let lightData: any = null;
       let fullObj: any = null;
-      let shellRendered = false;
-
-      const renderShell = () => {
-        loading!.style.display = "none";
-        results!.innerHTML = renderModeShell(fullObj, lightData, !!fullObj);
-        const root = results!.querySelector(".mode-tabs")?.parentElement as HTMLElement | null;
-        if (root) {
-          attachModeTabs(root);
-          attachWidgetToggles(root);
-        }
-        shellRendered = true;
-      };
+      let fullStatus: "idle" | "loading" | "ready" = "idle";
 
       const updateFullPane = () => {
-        if (!fullObj) return;
         const tabs = results!.querySelectorAll<HTMLButtonElement>(".mode-tab");
         const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
         if (!fullPane) return;
-        fullPane.innerHTML = `<div data-stage1>${renderStage1(fullObj)}</div>${renderStage2(fullObj)}`;
+        
+        if (fullStatus === "ready" && fullObj) {
+           fullPane.innerHTML = `<div data-stage1>${renderStage1(fullObj)}</div>${renderStage2(fullObj)}`;
+           attachWidgetToggles(fullPane);
+        }
+
         tabs.forEach((tb) => {
           if (tb.getAttribute("data-mt") === "full") {
-            tb.disabled = false;
-            tb.querySelector(".mt-spin")?.remove();
+            if (fullStatus === "loading") {
+               tb.disabled = true;
+               tb.innerHTML = `<span>Full</span><span class="mt-spin" aria-hidden="true"></span>`;
+               tb.removeAttribute("title");
+            } else if (fullStatus === "ready") {
+               tb.disabled = false;
+               tb.innerHTML = `<span>Full</span>`;
+               tb.removeAttribute("title");
+            }
           }
         });
-        attachWidgetToggles(fullPane);
       };
 
-      const lightPromise = fetchAllText(`${LIGHT_SYSTEM_PROMPT}${userBlock}`)
-        .then((txt) => {
-          const cleaned = (txt || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-          try {
-            lightData = JSON.parse(cleaned);
-          } catch {
-            const m = cleaned.match(/\{[\s\S]*\}/);
-            if (m) { try { lightData = JSON.parse(m[0]); } catch {} }
-          }
-          if (!lightData) lightData = cleaned; // fallback to raw text
-        })
-        .catch((e) => {
-          console.warn("light failed", e);
-          lightData = "";
-        });
-
-      const fullPromise = fetchAllText(`${SYSTEM_PROMPT}${userBlock}`)
-        .then((txt) => {
-          const cleaned = txt.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-          try {
-            fullObj = JSON.parse(cleaned);
-          } catch {
-            const m = cleaned.match(/\{[\s\S]*\}/);
-            if (m) { try { fullObj = JSON.parse(m[0]); } catch {} }
-          }
-        })
-        .catch((e) => {
-          console.warn("full failed", e);
-        });
-
-      try {
-        // As soon as Light arrives, render the shell (Full tab still loading)
-        lightPromise.then(() => {
-          if (shellRendered) return;
-          // If Full already arrived and is non-word mode, let the Full handler take over
-          if (fullObj && (fullObj.mode === "context" || fullObj.mode === "sentence" || fullObj.mode === "ru-map" || fullObj.error)) return;
-          renderShell();
-        });
-
-        await Promise.all([lightPromise, fullPromise]);
-        loading!.style.display = "none";
-
-        // Handle errors / non-word modes from Full
-        if (!fullObj) {
-          if (!shellRendered) {
-            results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-          }
-          return;
-        }
+      const processFullObj = () => {
+        if (!fullObj) return;
         if (fullObj.error) {
-          results!.innerHTML = `<div class="error">${escapeHtml(fullObj.error)}</div>`;
+          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
+          if (fullPane) fullPane.innerHTML = `<div class="error">${escapeHtml(fullObj.error)}</div>`;
           return;
         }
-        if (fullObj.mode === "context") {
-          results!.innerHTML = renderContext(fullObj);
-          attachChips();
-          if (fullObj.word) addHistory({ word: fullObj.word, translation: fullObj.query || "", mode: "context" }, fullObj);
-          return;
-        }
-        if (fullObj.mode === "ru-map") {
-          results!.innerHTML = renderRuMap(fullObj);
-          attachChips();
-          return;
-        }
+        
         if (fullObj.mode === "sentence") {
-          results!.innerHTML = renderSentence(fullObj);
-          const sObj = { ...fullObj, word: fullObj.sentence, _light: lightData };
-          lastBreakdown = sObj;
-          addHistory({ word: fullObj.sentence, translation: fullObj.translation || "", mode: "sentence" }, sObj);
+          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
+          if (fullPane) fullPane.innerHTML = renderSentence(fullObj);
+          
+          fullObj._light = lightData ?? "";
+          lastBreakdown = { ...fullObj, word: fullObj.sentence };
+          addHistory({ word: fullObj.sentence, translation: fullObj.translation || "", mode: "sentence" }, lastBreakdown);
           renderSaveRow();
           return;
         }
+        
+        if (fullObj.mode === "context") {
+          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
+          if (fullPane) {
+            fullPane.innerHTML = renderContext(fullObj);
+            attachChips();
+          }
+          if (fullObj.word) {
+            addHistory({ word: fullObj.word, translation: fullObj.query || "", mode: "context" }, fullObj);
+          }
+          return;
+        }
 
-        // Word/phrase mode → enrich with light data and finalize
+        if (fullObj.mode === "ru-map") {
+          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
+          if (fullPane) {
+            fullPane.innerHTML = renderRuMap(fullObj);
+            attachChips();
+          }
+          return;
+        }
+
+        // Normal word mode
         fullObj._light = lightData ?? "";
-
-        if (!shellRendered) renderShell();
-        else updateFullPane();
-
+        updateFullPane();
+        
         lastBreakdown = fullObj;
         const existingSaved = wordsList.find((w) => w.word === fullObj.word);
         if (existingSaved && currentUserId) {
@@ -1750,12 +1772,97 @@ function Index() {
         const firstCtx = (fullObj.contexts && fullObj.contexts[0]) || {};
         addHistory({ word: fullObj.word, translation: firstCtx.title || "", mode: fullObj.mode || "word" }, fullObj);
         renderSaveRow();
+      };
+
+      const fetchFull = () => {
+        fullStatus = "loading";
+        updateFullPane();
+
+        fetchAllText(`${SYSTEM_PROMPT}${userBlock}`)
+          .then((txt) => {
+            const cleaned = txt.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+            try {
+              fullObj = JSON.parse(cleaned);
+            } catch {
+              const m = cleaned.match(/\{[\s\S]*\}/);
+              if (m) { try { fullObj = JSON.parse(m[0]); } catch {} }
+            }
+            if (!fullObj) fullObj = { error: t("err.generic") };
+          })
+          .catch((e) => {
+            console.warn("full failed", e);
+            fullObj = { error: t("err.generic") };
+          })
+          .finally(() => {
+            fullStatus = "ready";
+            updateFullPane();
+            processFullObj();
+          });
+      };
+
+      const renderShell = () => {
+        loading!.style.display = "none";
+        results!.innerHTML = renderModeShell(fullObj, lightData, fullStatus);
+        const root = results!.querySelector(".mode-tabs")?.parentElement as HTMLElement | null;
+        if (root) {
+          attachModeTabs(root);
+          attachWidgetToggles(root);
+          
+          const fullTab = root.querySelector('.mode-tab[data-mt="full"]') as HTMLButtonElement | null;
+          if (fullTab && fullStatus === "idle") {
+            fullTab.addEventListener("click", () => {
+              if (fullStatus !== "idle") return;
+              fetchFull();
+            });
+          }
+        }
+      };
+
+      try {
+        const txt = await fetchAllText(`${LIGHT_SYSTEM_PROMPT}${userBlock}`);
+        const cleaned = (txt || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+        try {
+          lightData = JSON.parse(cleaned);
+        } catch {
+          const m = cleaned.match(/\{[\s\S]*\}/);
+          if (m) { try { lightData = JSON.parse(m[0]); } catch {} }
+        }
+        if (!lightData) lightData = cleaned;
+      } catch (err) {
+        console.warn("light failed", err);
+        lightData = "";
+      }
+
+      try {
+        const prevHist = historyList.find(h => h.word.toLowerCase() === q.toLowerCase() && h.breakdown && h.breakdown.contexts);
+        const prevSaved = wordsList.find(w => w.word.toLowerCase() === q.toLowerCase() && w.breakdown && w.breakdown.contexts);
+        const prev = prevHist || prevSaved;
+        if (prev && prev.breakdown) {
+          fullObj = prev.breakdown;
+          fullStatus = "ready";
+        }
+
+        renderShell();
+
+        // Save history & prepare Save Row
+        let baseObj = fullObj;
+        if (!baseObj && typeof lightData === "object" && lightData.word) {
+            baseObj = { word: lightData.word, mode: "word", _light: lightData };
+        } else if (baseObj) {
+            baseObj._light = lightData ?? "";
+        }
+
+        if (baseObj && baseObj.word) {
+            lastBreakdown = baseObj;
+            const firstCtx = (baseObj.contexts && baseObj.contexts[0]) || (lightData && lightData.contexts && lightData.contexts[0]) || {};
+            addHistory({ word: baseObj.word, translation: firstCtx.title || "", mode: baseObj.mode || "word" }, baseObj);
+            renderSaveRow();
+        }
+
       } catch (err) {
         console.error(err);
         loading!.style.display = "none";
-        if (!shellRendered) {
-          results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-        }
+        results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
       } finally {
         busy = false;
         goBtn!.disabled = false;
