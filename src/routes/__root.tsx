@@ -1,3 +1,4 @@
+import React, { useState, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -99,6 +100,69 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
+function BackgroundVideo() {
+  const [activeVideo, setActiveVideo] = useState<1 | 2>(1);
+  const video1Ref = useRef<HTMLVideoElement>(null);
+  const video2Ref = useRef<HTMLVideoElement>(null);
+
+  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>, videoId: 1 | 2) => {
+    const video = e.currentTarget;
+    const timeLeft = video.duration - video.currentTime;
+    
+    // Crossfade 1.5 seconds before the video ends
+    if (timeLeft <= 1.5 && activeVideo === videoId) {
+      const nextVideoId = videoId === 1 ? 2 : 1;
+      const nextVideo = nextVideoId === 1 ? video1Ref.current : video2Ref.current;
+      
+      if (nextVideo) {
+        nextVideo.currentTime = 0;
+        nextVideo.play().catch(console.error);
+        setActiveVideo(nextVideoId);
+      }
+    }
+  };
+
+  const baseStyle: React.CSSProperties = {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
+    transition: "opacity 1.5s ease-in-out"
+  };
+
+  return (
+    <>
+      <video
+        ref={video1Ref}
+        src="/mp_.mp4"
+        autoPlay
+        muted
+        playsInline
+        onTimeUpdate={(e) => handleTimeUpdate(e, 1)}
+        style={{
+          ...baseStyle,
+          zIndex: -2,
+          opacity: activeVideo === 1 ? 1 : 0,
+        }}
+      />
+      <video
+        ref={video2Ref}
+        src="/mp_.mp4"
+        muted
+        playsInline
+        onTimeUpdate={(e) => handleTimeUpdate(e, 2)}
+        style={{
+          ...baseStyle,
+          zIndex: -1,
+          opacity: activeVideo === 2 ? 1 : 0,
+        }}
+      />
+    </>
+  );
+}
+
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -118,6 +182,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <BackgroundVideo />
       <div className="app-with-assistant">
         <Outlet />
       </div>

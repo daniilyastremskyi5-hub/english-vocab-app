@@ -230,6 +230,36 @@ function Index() {
       return `<button class="sound-btn" data-text="${escapeHtml(text)}" title="Listen" aria-label="Listen">🔊</button>`;
     }
 
+    function getCardWidgetState(word: string, widgetTitle: string, defaultState: boolean): boolean {
+      if (!word) return defaultState;
+      try {
+        const key = `card_state:${word.toLowerCase().trim()}`;
+        const stored = localStorage.getItem(key);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === "object" && widgetTitle in parsed) {
+            return !!parsed[widgetTitle];
+          }
+        }
+      } catch (e) {
+        console.error("Error reading card widget state:", e);
+      }
+      return defaultState;
+    }
+
+    function saveCardWidgetState(word: string, widgetTitle: string, isOpen: boolean) {
+      if (!word) return;
+      try {
+        const key = `card_state:${word.toLowerCase().trim()}`;
+        const stored = localStorage.getItem(key);
+        const parsed = stored ? JSON.parse(stored) : {};
+        parsed[widgetTitle] = isOpen;
+        localStorage.setItem(key, JSON.stringify(parsed));
+      } catch (e) {
+        console.error("Error saving card widget state:", e);
+      }
+    }
+
     function tryExtract(buffer: string): { full: boolean; obj: any } {
       try {
         const obj = JSON.parse(buffer);
@@ -254,7 +284,7 @@ function Index() {
 
     function renderStage1(obj: any) {
       let html = "";
-      if (obj.word) html += `<div class="word fade-up">${escapeHtml(obj.word)} ${renderSoundButton(obj.word)}</div>`;
+      if (obj.word) html += `<div class="word-chip-wrap fade-up"><span class="word-chip">${escapeHtml(obj.word)}</span>${renderSoundButton(obj.word)}</div>`;
       if (obj.level || obj.frequency) {
         html += `<div class="badges fade-up" style="animation-delay:.05s">`;
         if (obj.level) html += `<span class="badge cefr">${escapeHtml(obj.level)}</span>`;
@@ -264,19 +294,175 @@ function Index() {
       return html;
     }
 
-    function widgetHtml(icon: string, title: string, content: string, opensFirst: boolean, delay: number) {
+    function parseMarkdown(text: string): string {
+      if (!text) return "";
+
+      // Split on double newlines into paragraphs; single newlines treated as <br> within a para
+      const rawParas = text.split(/\n{2,}/);
+
+      const processedParas = rawParas.map((para) => {
+        // Detect blockquote / example block (lines starting with "> ")
+        const lines = para.split("\n");
+        const isExampleBlock = lines.every((l) => l.trimStart().startsWith(">"));
+        if (isExampleBlock) {
+          const innerLines = lines.map((l) => l.trimStart().replace(/^>\s?/, ""));
+          const innerHtml = innerLines
+            .map((l) => {
+              let h = escapeHtml(l);
+              h = h.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+              h = h.replace(/__(.*?)__/g, "<strong>$1</strong>");
+              h = h.replace(/\*(.*?)\*/g, "<em>$1</em>");
+              h = h.replace(/_(.*?)_/g, "<em>$1</em>");
+              h = h.replace(/`(.*?)`/g, '<span class="en-chip">$1</span>');
+              return `<p>${h}</p>`;
+            })
+            .join("");
+          return `<div class="md-example-block">${innerHtml}</div>`;
+        }
+
+        // Normal paragraph
+        let html = escapeHtml(para);
+        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+        html = html.replace(/__(.*?)__/g, "<strong>$1</strong>");
+        html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+        html = html.replace(/_(.*?)_/g, "<em>$1</em>");
+        // Backtick text → inline glass pill chip
+        html = html.replace(/`(.*?)`/g, '<span class="en-chip">$1</span>');
+        // Single newlines within a paragraph → <br>
+        html = html.replace(/\n/g, "<br>");
+        // Verdict block: a line starting with ВЕРДИКТ[:]
+        html = html.replace(
+          /(<br>|^)ВЕРДИКТ[:\s]*([\s\S]*?)(?=<br>|$)/gi,
+          (_m: string, pre: string, content: string) => {
+            const clean = content.replace(/^[\s:]+/, "").trim();
+            return `${pre}<span class="verdict-block"><span class="verdict-badge">ВЕРДИКТ</span><span class="verdict-text">${clean}</span></span>`;
+          }
+        );
+        return `<p>${html}</p>`;
+      });
+
+      return processedParas.join("");
+    }
+
+
+    function tryRepairJson(str: string): any {
+      const trimmed = str.trim();
+      if (!trimmed) return null;
+      try {
+        return JSON.parse(trimmed);
+      } catch {}
+
+      let stack: string[] = [];
+      let inString = false;
+      let isEscape = false;
+      let repaired = "";
+
+      for (let i = 0; i < trimmed.length; i++) {
+        const char = trimmed[i];
+        repaired += char;
+
+        if (inString) {
+          if (isEscape) {
+            isEscape = false;
+          } else if (char === "\\") {
+            isEscape = true;
+          } else if (char === '"') {
+            inString = false;
+          }
+        } else {
+          if (char === '"') {
+            inString = true;
+          } else if (char === "{") {
+            stack.push("}");
+          } else if (char === "[") {
+            stack.push("]");
+          } else if (char === "}" || char === "]") {
+            stack.pop();
+          }
+        }
+      }
+
+      if (inString) {
+        if (isEscape) repaired = repaired.slice(0, -1);
+        repaired += '"';
+      }
+
+      for (let i = stack.length - 1; i >= 0; i--) {
+        repaired = repaired.trim();
+        if (repaired.endsWith(",")) {
+          repaired = repaired.slice(0, -1);
+        }
+        if (repaired.endsWith(":")) {
+          repaired += "null";
+        }
+        repaired += stack[i];
+      }
+
+      try {
+        return JSON.parse(repaired);
+      } catch {
+        const m = trimmed.match(/\{[\s\S]*\}/);
+        if (m) {
+          try { return JSON.parse(m[0]); } catch {}
+        }
+        return null;
+      }
+    }
+
+    function widgetHtml(icon: string, title: string, content: string, isOpen: boolean, delay: number, isLoading?: boolean) {
+      const spinner = isLoading ? '<span class="mt-spin" style="margin-left:8px; width:14px; height:14px; display:inline-block;" aria-hidden="true"></span>' : '';
       return `
-        <div class="widget ${opensFirst ? "open" : ""}" style="animation-delay:${delay}ms">
+        <div class="widget ${isOpen ? "open" : ""}" style="animation-delay:${delay}ms">
           <div class="widget-head" data-toggle>
             <span class="widget-icon">${icon}</span>
-            <span class="widget-title">${title}</span>
-            <span class="widget-chevron">▾</span>
+            <span class="widget-title" style="display:flex;align-items:center;">${title}${spinner}</span>
+            <span class="widget-chevron"><span class="material-symbols-outlined">expand_more</span></span>
           </div>
           <div class="widget-body">
-            <div class="widget-content">${content}</div>
+            <div class="widget-content"><div class="widget-content-inner">${content}</div></div>
           </div>
         </div>`;
     }
+
+    function getCachedType(word: string): "Light" | "Разбор" | null {
+      if (!word) return null;
+      const normalized = word.toLowerCase();
+      
+      // Check library (wordsList)
+      const saved = wordsList.find(w => w.word.toLowerCase() === normalized && w.breakdown);
+      if (saved) {
+        if (saved.breakdown.blocks) return "Разбор";
+        if (saved.breakdown._light || saved.breakdown.wave1) return "Light";
+      }
+      
+      // Check history (historyList)
+      const hist = historyList.find(h => h.word.toLowerCase() === normalized && h.breakdown);
+      if (hist) {
+        if (hist.breakdown.blocks) return "Разбор";
+        if (hist.breakdown._light || hist.breakdown.wave1) return "Light";
+      }
+      
+      return null;
+    }
+
+    function renderRecommendationCard(item: any): string {
+      const canonical = item.canonical || "";
+      const hint = item.hint || "";
+      // All recommendation cards now automatically lead to Full Breakdown ("Разбор")
+      const cachedType = "Разбор";
+      const badgeHtml = `<span class="badge freq" style="font-size: 11px; padding: 2px 8px; border-radius: 999px;">${escapeHtml(cachedType)}</span>`;
+        
+      return `
+        <div class="recommendation-card fade-up" data-canonical="${escapeHtml(canonical)}">
+          <div class="rc-head" style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%;">
+            <div class="rc-word" style="font-size: 16px; font-weight: 700; color: var(--text); font-family: inherit;">${escapeHtml(canonical)}</div>
+            ${badgeHtml}
+          </div>
+          ${hint ? `<div class="rc-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.4; margin-top: 4px;">${escapeHtml(hint)}</div>` : ""}
+        </div>
+      `;
+    }
+
 
     function renderExamples(examples: any[]): string {
       if (!Array.isArray(examples) || !examples.length) return "";
@@ -285,7 +471,7 @@ function Index() {
         examples
           .map(
             (e: any) =>
-              `<div class="ex-item"><div class="ex-en">${escapeHtml(e?.en || "")} ${renderSoundButton(e?.en)}</div><div class="ex-ru">${escapeHtml(e?.ru || "")}</div></div>`,
+              `<div class="ex-item"><div class="ex-en"><em>${escapeHtml(e?.en || "")}</em> ${renderSoundButton(e?.en)}</div><div class="ex-ru">${escapeHtml(e?.ru || "")}</div></div>`,
           )
           .join("") +
         `</div>`
@@ -393,9 +579,139 @@ function Index() {
       );
     }
 
-    function renderStage2(obj: any, variant: "full" | "light" = "full") {
+    function getBlockIcon(title: string): string {
+      const t = title.toLowerCase();
+      if (t.includes("что это") || t.includes("описание")) return "💡";
+      if (t.includes("второе") || t.includes("второй")) return "🔄";
+      if (t.includes("предлог") || t.includes("оттенки")) return "🎨";
+      if (t.includes("после")) return "👉";
+      if (t.includes("живой") || t.includes("речи") || t.includes("примеры")) return "💬";
+      if (t.includes("грамматика")) return "📐";
+      if (t.includes("фразы") || t.includes("обороты")) return "📦";
+      if (t.includes("путают")) return "🔍";
+      if (t.includes("грабли")) return "⚠️";
+      if (t.includes("картины") || t.includes("большая")) return "🖼️";
+      return "🔹";
+    }
+
+    function renderFullSkeletonOpen(idx: number = 0) {
+      return `
+        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton" style="animation: none; opacity: 1;">
+          <div class="full-skel-open">
+            <div class="skel-head">
+              <div class="skel-icon"></div>
+              <div class="skeleton-line" style="width: 38%;"></div>
+            </div>
+            <div class="skel-content">
+              <div class="skeleton-line long" style="width: 92%;"></div>
+              <div class="skeleton-line short" style="width: 70%;"></div>
+              <div class="skeleton-line long" style="width: 85%;"></div>
+              <div class="skeleton-line short" style="width: 55%;"></div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function renderFullSkeletonClosed(idx: number = 0) {
+      const widths = [33, 45, 27, 40, 52, 36];
+      const w = widths[idx % widths.length];
+      return `
+        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton" style="animation: none; opacity: 1;">
+          <div class="full-skel-closed">
+            <div class="skel-head">
+              <div class="skel-icon"></div>
+              <div class="skeleton-line" style="width: ${w}%;"></div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function renderStage2(obj: any, variant: "full" | "light" = "full", isStreaming: boolean = false) {
+      const TOTAL_SKELETONS = 7;
+
+      if (obj && Array.isArray(obj.blocks)) {
+        // New block-based Full Breakdown format
+        const blocks = obj.blocks;
+
+        if (isStreaming) {
+          // Determine how many blocks are "complete":
+          // block[i] is complete if block[i+1] exists (next block started) or stream is finished
+          // Since isStreaming=true here, we only consider blocks complete when next exists
+          const completedCount = blocks.length > 0 ? blocks.length - 1 : 0;
+          
+          const slots: string[] = [];
+
+          // Render completed real blocks
+          for (let i = 0; i < completedCount; i++) {
+            const block = blocks[i];
+            const icon = getBlockIcon(block.title);
+            const title = block.title || "";
+            const content = parseMarkdown(block.content || "");
+            const word = obj?.word || obj?.canonical || "";
+            const isOpen = getCardWidgetState(word, title, false);
+            slots.push(`<div class="skel-fade-in">${widgetHtml(icon, title, content, isOpen, 0, false)}</div>`);
+          }
+
+          // The last block in array is still streaming — show next skeleton for it
+          // Remaining skeletons count
+          const remaining = Math.max(0, TOTAL_SKELETONS - completedCount);
+
+          for (let j = 0; j < remaining; j++) {
+            // The first skeleton slot: open if no real blocks yet, else closed
+            if (j === 0 && completedCount === 0) {
+              slots.push(renderFullSkeletonOpen());
+            } else {
+              slots.push(renderFullSkeletonClosed(completedCount + j));
+            }
+          }
+
+
+          return `<div class="widgets">${slots.join("")}</div>`;
+        }
+
+        // Not streaming — render all blocks
+        const widgets: string[] = [];
+        blocks.forEach((block: any, i: number) => {
+          const icon = getBlockIcon(block.title);
+          const title = block.title || "";
+          const content = parseMarkdown(block.content || "");
+          const word = obj?.word || obj?.canonical || "";
+          const isOpen = getCardWidgetState(word, title, false);
+          widgets.push(widgetHtml(icon, title, content, isOpen, i * 100, false));
+        });
+
+        let html = `<div class="widgets">${widgets.join("")}</div>`;
+
+        // Actionable recommendation chips at the bottom
+        if (Array.isArray(obj.recommendations) && obj.recommendations.length) {
+          const recsHtml = obj.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
+
+          html += `
+            <div class="recommendations-section fade-up" style="margin-top: 24px;">
+              <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
+              <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                ${recsHtml}
+              </div>
+            </div>
+          `;
+        }
+
+        return html;
+      }
+
+      // No blocks yet (streaming initial state or non-block format)
+      if (isStreaming) {
+        // Show 7 skeletons: 1 open + 6 closed
+        const skels: string[] = [];
+        skels.push(renderFullSkeletonOpen());
+        for (let i = 1; i < TOTAL_SKELETONS; i++) {
+          skels.push(renderFullSkeletonClosed(i));
+        }
+        return `<div class="widgets">${skels.join("")}</div>`;
+      }
+
+      // Legacy fallback: widgets-based rendering
       const isLight = variant === "light";
-      // Full: всё закрыто. Light: всё открыто, кроме «Синонимы».
       const openDefault = isLight;
       const openSynonyms = false;
       const widgets: { icon: string; title: string; content: string; open: boolean }[] = [];
@@ -455,7 +771,105 @@ function Index() {
       return html;
     }
 
-    function renderSentence(obj: any) {
+    function renderSentence(obj: any, isStreaming: boolean = false) {
+      const isNew = obj && (
+        (obj.translation && typeof obj.translation === "object") ||
+        (obj.wave !== undefined) ||
+        (obj.recommendations !== undefined) ||
+        (isStreaming && !obj.highlights && !obj.comment)
+      );
+
+      if (isNew) {
+        const originalText = obj.sentence || obj.word || (document.getElementById("wordInput") as HTMLInputElement | null)?.value || "";
+        
+        let mainTranslationHtml = "";
+        let variantsHtml = "";
+        
+        if (obj.translation && typeof obj.translation === "object") {
+          if (obj.translation.main) {
+            mainTranslationHtml = `<div class="sent-main-translation" style="font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;">${escapeHtml(obj.translation.main)}</div>`;
+          } else if (isStreaming) {
+            mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div>`;
+          }
+          
+          if (Array.isArray(obj.translation.variants) && obj.translation.variants.length) {
+            const listItems = obj.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
+            variantsHtml = `
+              <div class="sent-variants" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+                <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                  ${listItems}
+                </ul>
+              </div>
+            `;
+          }
+        } else if (isStreaming) {
+          mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div><div class="skeleton-line long" style="height: 14px; width: 80%;"></div>`;
+        }
+        
+        let waveHtml = "";
+        if (obj.wave) {
+          const waveTitle = obj.wave.title || "Что в этом предложении";
+          const waveContent = parseMarkdown(obj.wave.content || "");
+          const isOpen = getCardWidgetState(originalText, waveTitle, true);
+          waveHtml = widgetHtml("💡", waveTitle, waveContent, isOpen, 100, isStreaming && !obj.wave.content);
+        } else if (isStreaming) {
+          waveHtml = `
+            <div class="widget open skeleton-widget wave-skeleton" style="animation-delay: 100ms; min-height: 180px; margin-top: 16px;">
+              <div class="widget-head" style="cursor: default;">
+                <div class="skeleton-line title" style="margin-bottom: 0; width: 45%;"></div>
+              </div>
+              <div class="widget-body" style="grid-template-rows: 1fr;">
+                <div class="widget-content">
+                  <div class="widget-content-inner" style="padding-top: 14px;">
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line short"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        
+        let recsHtml = "";
+        if (Array.isArray(obj.recommendations) && obj.recommendations.length) {
+          const cardsHtml = obj.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
+          recsHtml = `
+            <div class="wave3-section fade-up" style="margin-top: 28px;">
+              <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
+              <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                ${cardsHtml}
+              </div>
+            </div>
+          `;
+        } else if (isStreaming) {
+          recsHtml = `
+            <div class="skeleton-widget wave-skeleton wave3-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 16px; min-height: 100px;">
+              <div class="skeleton-line title" style="width: 40%; height: 18px; margin-bottom: 16px;"></div>
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div class="skeleton-line short" style="height: 32px; border-radius: 999px;"></div>
+              </div>
+            </div>
+          `;
+        }
+        
+        return `
+          <div class="sentence-breakdown-container fade-up">
+            <div class="translation-card fade-up glass-card" style="margin-bottom: 24px; padding: 20px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px);">
+              <div class="sent-original" style="font-size: 20px; margin-bottom: 12px;"><em>${escapeHtml(originalText)}</em></div>
+              ${mainTranslationHtml}
+              ${variantsHtml}
+            </div>
+            
+            <div class="widgets">
+              ${waveHtml}
+            </div>
+            
+            ${recsHtml}
+          </div>
+        `;
+      }
+
       const highlights = Array.isArray(obj.highlights) ? obj.highlights : [];
       const items = highlights
         .map(
@@ -465,7 +879,7 @@ function Index() {
         .join("");
       return `
         <div class="sentence-card fade-up">
-          <div class="sent-original">📝 <em>${escapeHtml(obj.sentence || "")}</em></div>
+          <div class="sent-original"><em>${escapeHtml(obj.sentence || "")}</em></div>
           ${obj.translation ? `<div class="sent-row"><span class="sent-label">Перевод:</span> ${escapeHtml(obj.translation)}</div>` : ""}
           ${obj.comment ? `<div class="sent-row"><span class="sent-label">Комментарий:</span> ${escapeHtml(obj.comment)}</div>` : ""}
           ${items ? `<div class="sent-section"><div class="sent-label">Что стоит разобрать:</div>${items}</div>` : ""}
@@ -523,57 +937,310 @@ function Index() {
       `;
     }
 
-    function renderLight(data: any): string {
+    function getWordFromBreakdown(b: any): string {
+      if (!b) return "";
+      if (b.word) return b.word;
+      if (b.canonical) return b.canonical;
+      if (b._light && b._light.canonical) return b._light.canonical;
+      if (b._light && b._light.word) return b._light.word;
+      if (b.breakdown && b.breakdown.word) return b.breakdown.word;
+      if (b.breakdown && b.breakdown.canonical) return b.breakdown.canonical;
+      return "";
+    }
+
+    function renderUnifiedBreakdown(obj: any): string {
+      if (!obj) return "";
+      if (obj.mode === "context") {
+        return renderContext(obj);
+      }
+      if (obj.mode === "sentence") {
+        return renderSentence(obj);
+      }
+      if (obj.mode === "ru-map") {
+        return renderRuMap(obj);
+      }
+      
+      // If we have unified structure
+      if (obj._light) {
+        // Render light overview layer
+        const hasFull = !!(obj.breakdown && Array.isArray(obj.breakdown.blocks));
+        const lightHtml = renderLight(obj._light, false, hasFull);
+        let fullHtml = "";
+        if (hasFull) {
+          fullHtml = `
+            <div class="full-continuation-container active" style="margin-top: 24px;">
+              ${renderStage2(obj.breakdown, "full", false)}
+            </div>
+          `;
+        } else {
+          fullHtml = `<div class="full-continuation-container"></div>`;
+        }
+        return lightHtml + fullHtml;
+      }
+
+      // Default/Legacy Full word breakdown format
+      return `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
+    }
+
+    function renderLightSkeleton(): string {
+      return `
+        <div class="widgets">
+          <div data-skeleton="wave1" class="widget open skeleton-widget wave-skeleton" style="animation-delay: 0ms; min-height: 180px;">
+            <div class="widget-head" style="cursor: default;">
+              <div class="skeleton-line title" style="margin-bottom: 0; width: 30%;"></div>
+            </div>
+            <div class="widget-body" style="grid-template-rows: 1fr;">
+              <div class="widget-content">
+                <div class="widget-content-inner" style="padding-top: 14px;">
+                  <div class="skeleton-line long"></div>
+                  <div class="skeleton-line short"></div>
+                  <div class="skeleton-line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div data-skeleton="wave2" class="widget open skeleton-widget wave-skeleton" style="animation-delay: 100ms; min-height: 240px;">
+            <div class="widget-head" style="cursor: default;">
+              <div class="skeleton-line title" style="margin-bottom: 0; width: 45%;"></div>
+            </div>
+            <div class="widget-body" style="grid-template-rows: 1fr;">
+              <div class="widget-content">
+                <div class="widget-content-inner" style="padding-top: 14px;">
+                  <div class="skeleton-line long"></div>
+                  <div class="skeleton-line long"></div>
+                  <div class="skeleton-line short"></div>
+                  <div class="skeleton-line long"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div data-skeleton="wave3" class="skeleton-widget wave-skeleton wave3-skeleton" style="animation-delay: 200ms; margin-top: 24px; padding: 16px; min-height: 100px;">
+          <div class="skeleton-line title" style="width: 50%; height: 18px; margin-bottom: 16px;"></div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="skeleton-line short" style="height: 32px; border-radius: 999px;"></div>
+            <div class="skeleton-line long" style="height: 32px; border-radius: 999px;"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLight(data: any, isStreaming: boolean = false, isFullLoaded: boolean = false): string {
       // Legacy: stored as plain text string
       if (typeof data === "string") {
         if (!data.trim()) return "";
-        return `<div class="light-block">${escapeHtml(data)}</div>`;
+        if (data.trim().startsWith("{")) {
+          return renderLightSkeleton();
+        }
+        return `<div class="light-block">${parseMarkdown(data)}</div>`;
       }
-      // New: JSON object with same schema as Full → render with same components
+      
+      if (!data) {
+        return renderLightSkeleton();
+      }
+
       if (data && typeof data === "object") {
         if (data.error) return `<div class="error">${escapeHtml(data.error)}</div>`;
-        return `<div data-stage1>${renderStage1(data)}</div>${renderStage2(data, "light")}`;
+
+        // Sentence mode
+        if (data.mode === "sentence") {
+          return renderSentence(data, isStreaming);
+        }
+
+        // Correction mode
+        if (data.mode === "correction" || (data.message && data.suggestions)) {
+          const suggestionsHtml = Array.isArray(data.suggestions) && data.suggestions.length
+            ? `
+              <div class="suggest-title" style="margin-top: 16px; font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">Возможно, ты имел в виду:</div>
+              <div class="chips" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                ${data.suggestions.map((s: string) => `<button class="chip" data-word="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join("")}
+              </div>
+            `
+            : "";
+          return `
+            <div class="correction-card fade-up">
+              <div class="correction-message">${parseMarkdown(data.message || "")}</div>
+              ${suggestionsHtml}
+            </div>
+          `;
+        }
+
+        // Word or Sentence mode
+        const isFinished = !isStreaming;
+        let html = "";
+        
+        // Render input note if present
+        const isInputNoteReady = isStreaming ? (isFinished || !!data.wave1) : true;
+        if (data.input_note && isInputNoteReady) {
+          html += `
+            <div class="input-note-alert fade-up" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255,193,7,0.1); border-left: 4px solid var(--accent); border-radius: 4px; font-size: 0.95rem; line-height: 1.5;">
+              💡 <em>${escapeHtml(data.input_note)}</em>
+            </div>
+          `;
+        }
+
+        const widgets: string[] = [];
+        
+        const isWave1Ready = isStreaming ? (isFinished || !!data.wave2) : true;
+        if (isWave1Ready && data.wave1) {
+          const title = data.wave1.title || "Что ты ввёл";
+          const content = parseMarkdown(data.wave1.content || "");
+          const word = data.canonical || data.word || "";
+          const isOpen = getCardWidgetState(word, title, true);
+          widgets.push(widgetHtml("📝", title, content, isOpen, 0, false));
+        } else {
+          widgets.push(`
+            <div class="widget open skeleton-widget wave-skeleton" style="animation-delay: 0ms; min-height: 180px;">
+              <div class="widget-head" style="cursor: default;">
+                <div class="skeleton-line title" style="margin-bottom: 0; width: 30%;"></div>
+              </div>
+              <div class="widget-body" style="grid-template-rows: 1fr;">
+                <div class="widget-content">
+                  <div class="widget-content-inner" style="padding-top: 14px;">
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line long"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `);
+        }
+
+        const isWave2Ready = isStreaming ? (isFinished || !!data.wave3 || !!data.deep_dive) : true;
+        if (isWave2Ready && data.wave2) {
+          const title = data.wave2.title || "Что это вообще";
+          const content = parseMarkdown(data.wave2.content || "");
+          const word = data.canonical || data.word || "";
+          const isOpen = getCardWidgetState(word, title, false);
+          widgets.push(widgetHtml("💡", title, content, isOpen, 100, false));
+        } else {
+          widgets.push(`
+            <div class="widget open skeleton-widget wave-skeleton" style="animation-delay: 100ms; min-height: 240px;">
+              <div class="widget-head" style="cursor: default;">
+                <div class="skeleton-line title" style="margin-bottom: 0; width: 45%;"></div>
+              </div>
+              <div class="widget-body" style="grid-template-rows: 1fr;">
+                <div class="widget-content">
+                  <div class="widget-content-inner" style="padding-top: 14px;">
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line long"></div>
+                    <div class="skeleton-line short"></div>
+                    <div class="skeleton-line long"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          `);
+        }
+
+        html += `<div class="widgets">${widgets.join("")}</div>`;
+
+        // Modern Unified Layout: check data mode
+        if (data.mode === "word") {
+          // Backward compatibility check
+          if (!data.deep_dive) {
+            data.deep_dive = {
+              recommended: true,
+              label: `Разобрать подробнее: ${data.canonical || ""}`,
+              hint: "Узнать подробности, готовую грамматику и частые грабли."
+            };
+          }
+
+          const isDeepDiveReady = isStreaming ? (isFinished || !!data.deep_dive) : true;
+          if (isDeepDiveReady && data.deep_dive) {
+            const recommendedBadgeHtml = data.deep_dive.recommended
+              ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);">🔥 Стоит открыть</span>`
+              : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1);">💡 Обзора достаточно</span>`;
+
+            let btnHtml = "";
+            if (isFullLoaded) {
+              btnHtml = `
+                <button class="btn-go deep-dive-btn success" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s; background: rgba(16, 185, 129, 0.15) !important; color: #10b981 !important; border: 1px solid rgba(16, 185, 129, 0.3) !important; cursor: default;" disabled>
+                  ✓ Разбор открыт
+                </button>
+              `;
+            } else {
+              btnHtml = `
+                <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s;" data-canonical="${escapeHtml(data.canonical || "")}">
+                  ${escapeHtml(data.deep_dive.label || "Разобрать подробнее")}
+                </button>
+              `;
+            }
+
+            html += `
+              <div class="deep-dive-card fade-up glass-card" style="margin-top: 28px; padding: 24px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 16px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Раздел</div>
+                  ${recommendedBadgeHtml}
+                </div>
+                <div>
+                  <div class="deep-dive-title" style="font-size: 20px; font-weight: 800; color: var(--text); font-family: inherit;">Глубокий разбор</div>
+                  <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5; margin-top: 8px;">
+                    ${escapeHtml(data.deep_dive.hint || "")}
+                  </div>
+                </div>
+                <div style="margin-top: 4px;">
+                  ${btnHtml}
+                </div>
+              </div>
+              ${isFullLoaded ? "" : '<div class="full-continuation-container"></div>'}
+            `;
+          } else {
+            // Skeleton for deep_dive card
+            html += `
+              <div data-skeleton="deep_dive" class="skeleton-widget wave-skeleton deep-dive-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 24px; min-height: 180px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 16px;">
+                  <div class="skeleton-line title" style="width: 20%; height: 12px; margin-bottom: 0;"></div>
+                  <div class="skeleton-line title" style="width: 30%; height: 18px; margin-bottom: 0; border-radius: 999px;"></div>
+                </div>
+                <div class="skeleton-line title" style="width: 45%; height: 22px; margin-bottom: 12px;"></div>
+                <div class="skeleton-line long" style="height: 14px; margin-bottom: 8px;"></div>
+                <div class="skeleton-line short" style="height: 14px; margin-bottom: 20px;"></div>
+                <div class="skeleton-line long" style="height: 46px; border-radius: 8px; margin-bottom: 0;"></div>
+              </div>
+              <div class="full-continuation-container"></div>
+            `;
+          }
+        } else {
+          // Legacy/Sentence mode Wave 3 behavior
+          const isWave3Ready = isStreaming ? isFinished : true;
+          if (isWave3Ready && Array.isArray(data.wave3) && data.wave3.length) {
+            const cardsHtml = data.wave3.map((item: any) => renderRecommendationCard(item)).join("");
+            
+            html += `
+              <div class="wave3-section fade-up" style="margin-top: 24px;">
+                <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
+                <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                  ${cardsHtml}
+                </div>
+              </div>
+            `;
+          } else {
+            html += `
+              <div class="skeleton-widget wave-skeleton wave3-skeleton" style="animation-delay: 200ms; margin-top: 24px; padding: 16px; min-height: 100px;">
+                <div class="skeleton-line title" style="width: 50%; height: 18px; margin-bottom: 16px;"></div>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                  <div class="skeleton-line short" style="height: 32px; border-radius: 999px;"></div>
+                  <div class="skeleton-line long" style="height: 32px; border-radius: 999px;"></div>
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        return html;
       }
       return "";
     }
 
-    function renderModeShell(obj: any, lightData: any, fullStatus: "idle" | "loading" | "ready"): string {
-      const hasLight = lightData && (typeof lightData === "string" ? lightData.trim() : true);
-      const lightHtml = hasLight
-        ? renderLight(lightData)
+    function renderLightContent(lightData: any, isStreaming: boolean = false): string {
+      const hasLight = isStreaming || (lightData && (typeof lightData === "string" ? lightData.trim() : true));
+      return hasLight
+        ? renderLight(lightData, isStreaming)
         : `<div class="light-block" style="color:var(--text-muted);">…</div>`;
-      const fullHtml =
-        fullStatus === "ready" && obj
-          ? `<div data-stage1>${renderStage1(obj)}</div>${renderStage2(obj)}`
-          : "";
-      const fullDisabled = fullStatus === "loading";
-      const tooltip = fullStatus === "idle" ? ` title="${currentLang === "en" ? "Click to generate" : "Нажмите для генерации"}"` : "";
-      return `
-        <div class="mode-tabs">
-          <button class="mode-tab active" data-mt="light" type="button">Light</button>
-          <button class="mode-tab" data-mt="full" type="button"${fullDisabled ? " disabled" : ""}${tooltip}>
-            <span>Full</span>${fullStatus === "loading" ? '<span class="mt-spin" aria-hidden="true"></span>' : ""}
-          </button>
-        </div>
-        <div class="mode-pane" data-pane="light">${lightHtml}</div>
-        <div class="mode-pane" data-pane="full" hidden>${fullHtml}</div>
-      `;
     }
 
-    function attachModeTabs(root: HTMLElement) {
-      const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>(":scope > .mode-tabs .mode-tab"));
-      tabs.forEach((tab) => {
-        tab.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (tab.disabled) return;
-          const mode = tab.getAttribute("data-mt");
-          tabs.forEach((x) => x.classList.toggle("active", x === tab));
-          root.querySelectorAll<HTMLElement>(":scope > .mode-pane").forEach((p) => {
-            p.hidden = p.getAttribute("data-pane") !== mode;
-          });
-        });
-      });
-    }
 
     function attachWidgetToggles(root?: HTMLElement) {
       (root || results)!.querySelectorAll("[data-toggle]").forEach((h) => {
@@ -582,19 +1249,239 @@ function Index() {
         el.__bound = true;
         el.addEventListener("click", () => {
           el.parentElement?.classList.toggle("open");
+          
+          // Track and save the state of this widget
+          const wordCard = el.closest(".word-card");
+          let activeWord = "";
+          if (wordCard) {
+            const wordEl = wordCard.querySelector(".wc-word");
+            if (wordEl) {
+              const clone = wordEl.cloneNode(true) as HTMLElement;
+              clone.querySelectorAll(".badge").forEach((b) => b.remove());
+              activeWord = clone.textContent?.trim() || "";
+            }
+          }
+          if (!activeWord) {
+            activeWord = (lastBreakdown ? getWordFromBreakdown(lastBreakdown) : "").trim();
+          }
+          
+          if (activeWord) {
+            const title = el.querySelector(".widget-title")?.textContent?.trim() || "";
+            const isOpen = el.parentElement?.classList.contains("open") || false;
+            saveCardWidgetState(activeWord, title, isOpen);
+          }
         });
       });
     }
     function attachChips() {
       results!.querySelectorAll(".chip").forEach((c) => {
-        c.addEventListener("click", () => {
-          const w = c.getAttribute("data-word") || "";
-          results!.classList.add("fade-out");
+        const el = c as HTMLButtonElement & { __bound?: boolean };
+        if (el.__bound) return;
+        el.__bound = true;
+        el.addEventListener("click", () => {
+          const canonical = el.getAttribute("data-canonical") || "";
+          if (canonical) {
+            // Wave 3 recommendation chip — go to standard search run() first!
+            results!.classList.add("fade-out");
+            setTimeout(() => {
+              input!.value = canonical;
+              results!.classList.remove("fade-out");
+              run();
+            }, 220);
+            return;
+          }
+          const w = el.getAttribute("data-word") || "";
+          if (w) {
+            results!.classList.add("fade-out");
+            setTimeout(() => {
+              input!.value = w;
+              results!.classList.remove("fade-out");
+              run();
+            }, 220);
+          }
+        });
+      });
+
+      results!.querySelectorAll(".recommendation-card").forEach((c) => {
+        const el = c as HTMLElement & { __bound?: boolean };
+        if (el.__bound) return;
+        el.__bound = true;
+        el.addEventListener("click", () => {
+          const canonical = el.getAttribute("data-canonical") || "";
+          if (canonical) {
+            results!.classList.add("fade-out");
+            setTimeout(() => {
+              input!.value = canonical;
+              const ctxEl = document.getElementById("contextInput") as HTMLInputElement | null;
+              if (ctxEl) ctxEl.value = "";
+              results!.classList.remove("fade-out");
+              run();
+            }, 220);
+          }
+        });
+      });
+    }
+
+    async function lazyLoadFullBreakdown(canonical: string, btn: HTMLButtonElement) {
+      if (busy) return;
+      busy = true;
+
+      btn.disabled = true;
+      const originalLabel = btn.innerHTML;
+      btn.innerHTML = `<span class="mt-spin" style="margin-right: 8px; width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; display: inline-block; animation: ln-spin 0.7s linear infinite;" aria-hidden="true"></span> Загрузка...`;
+
+      const root = btn.closest(".word-card") || document.getElementById("results");
+      if (!root) {
+        busy = false;
+        btn.innerHTML = originalLabel;
+        btn.disabled = false;
+        return;
+      }
+
+      const container = root.querySelector(".full-continuation-container") as HTMLElement | null;
+      if (!container) {
+        busy = false;
+        btn.innerHTML = originalLabel;
+        btn.disabled = false;
+        return;
+      }
+
+      container.classList.add("active");
+      container.style.marginTop = "24px";
+
+      const TOTAL_LAZY_SKELETONS = 5;
+      const skels: string[] = [];
+      skels.push(renderFullSkeletonOpen(0));
+      for (let i = 1; i < TOTAL_LAZY_SKELETONS; i++) {
+        skels.push(renderFullSkeletonClosed(i));
+      }
+      container.innerHTML = `<div class="widgets">${skels.join("")}</div>`;
+
+      // Retrieve the Light data (either from active lastLightData or from the cached history/library record)
+      let lightDataObj = lastLightData;
+      if (!lightDataObj || lightDataObj.canonical?.toLowerCase() !== canonical.toLowerCase()) {
+        const cached = historyList.find(h => h.word.toLowerCase() === canonical.toLowerCase() && h.breakdown && h.breakdown._light)
+                    || wordsList.find(w => w.word.toLowerCase() === canonical.toLowerCase() && w.breakdown && w.breakdown._light);
+        if (cached && cached.breakdown) {
+          lightDataObj = cached.breakdown._light;
+        }
+      }
+      
+      if (!lightDataObj) {
+        lightDataObj = {
+          mode: "word",
+          canonical: canonical,
+          wave1: { title: "📝 Что ты ввёл", content: "..." },
+          wave2: { title: "💡 Что это вообще", content: "..." }
+        };
+      }
+
+      const pos = (lightDataObj?.canonical?.toLowerCase() === canonical.toLowerCase() ? lightDataObj?.pos : "") || "";
+      const type = (lightDataObj?.canonical?.toLowerCase() === canonical.toLowerCase() ? lightDataObj?.type : "") || "";
+
+      let fullObj: any = null;
+
+      try {
+        await fetchStream({ canonical, pos, type, mode: "full" }, (accumulated, isFinished) => {
+          const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+          let parsed = null;
+          try { parsed = tryRepairJson(cleaned); } catch {}
+          fullObj = parsed ?? cleaned;
+
+          if (fullObj && typeof fullObj === "object" && Array.isArray(fullObj.blocks)) {
+            const completedCount = isFinished ? fullObj.blocks.length : Math.max(0, fullObj.blocks.length - 1);
+            
+            let widgetsWrap = container.querySelector(".widgets") as HTMLElement | null;
+            if (!widgetsWrap) {
+              container.innerHTML = `<div class="widgets"></div>`;
+              widgetsWrap = container.querySelector(".widgets")!;
+            }
+
+            for (let i = 0; i < completedCount; i++) {
+              let blockNode = widgetsWrap.querySelector(`[data-block-idx="${i}"]`) as HTMLElement | null;
+              if (!blockNode) {
+                const skeletonN = widgetsWrap.querySelector(`[data-skeleton="${i}"]`);
+                if (skeletonN) {
+                  const block = fullObj.blocks[i];
+                  const icon = getBlockIcon(block.title);
+                  const title = block.title || "";
+                  const content = parseMarkdown(block.content || "");
+                  const isOpen = getCardWidgetState(canonical, title, false);
+                  const blockHtml = `<div class="skel-fade-in" data-block-idx="${i}">${widgetHtml(icon, title, content, isOpen, 0, false)}</div>`;
+
+                  const tempDiv = document.createElement("div");
+                  tempDiv.innerHTML = blockHtml;
+                  const realNode = tempDiv.firstElementChild!;
+                  skeletonN.replaceWith(realNode);
+                  attachWidgetToggles(realNode as HTMLElement);
+                }
+              }
+            }
+
+            if (isFinished) {
+              widgetsWrap.querySelectorAll("[data-skeleton]").forEach((el) => el.remove());
+            }
+          }
+        });
+
+        if (fullObj && typeof fullObj === "object") {
+          btn.className = "btn-go deep-dive-btn success";
+          btn.style.background = "rgba(16, 185, 129, 0.15) !important";
+          btn.style.color = "#10b981 !important";
+          btn.style.border = "1px solid rgba(16, 185, 129, 0.3) !important";
+          btn.style.cursor = "default";
+          btn.innerHTML = "✓ Разбор открыт";
+          btn.disabled = true;
+
+          const combined = { _light: lightDataObj, breakdown: fullObj };
+          const trans = lightDataObj?.wave1?.content ? lightDataObj.wave1.content.split("\n")[0] : "";
+          await addHistory({ word: canonical, translation: trans, mode: "full_json" }, combined);
+          
+          const existingSaved = wordsList.find((w) => w.word.toLowerCase() === canonical.toLowerCase());
+          if (existingSaved) {
+            existingSaved.breakdown = combined;
+            if (currentUserId) {
+              await supabase.from("words").update({ breakdown: JSON.stringify(combined) }).eq("id", existingSaved.id);
+            } else {
+              store.words = store.words.map((w: any) =>
+                w.word.toLowerCase() === canonical.toLowerCase() ? { ...w, breakdown: combined } : w
+              );
+              saveStore(store);
+            }
+          }
+
+          if (root === document.getElementById("results")) {
+            lastBreakdown = combined;
+            renderSaveRow();
+          }
+
           setTimeout(() => {
-            input!.value = w;
-            results!.classList.remove("fade-out");
-            run();
-          }, 220);
+            container.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 150);
+        } else {
+          btn.innerHTML = originalLabel;
+          btn.disabled = false;
+        }
+      } catch (err) {
+        console.warn("Lazy load Full breakdown failed:", err);
+        btn.innerHTML = originalLabel;
+        btn.disabled = false;
+      } finally {
+        busy = false;
+      }
+    }
+
+    function attachDeepDiveHandlers(root?: HTMLElement) {
+      const container = root || results;
+      container!.querySelectorAll(".deep-dive-btn").forEach((btn) => {
+        const el = btn as HTMLButtonElement & { __bound?: boolean };
+        if (el.__bound) return;
+        el.__bound = true;
+        el.addEventListener("click", () => {
+          const canonical = el.getAttribute("data-canonical") || "";
+          if (canonical) {
+            lazyLoadFullBreakdown(canonical, el);
+          }
         });
       });
     }
@@ -742,6 +1629,9 @@ function Index() {
         "account.btn": "Войти / Зарегистрироваться",
         "err.generic": "Что-то пошло не так. Попробуй ещё раз.",
         "err.input": "Введи слово или фразу на английском",
+        "badge.light": "Light",
+        "badge.full": "Разбор",
+        "badge.sentence": "Фраза",
       },
       en: {
         "nav.breakdown": "Breakdown",
@@ -776,6 +1666,9 @@ function Index() {
         "account.btn": "Sign in / Sign up",
         "err.generic": "Something went wrong. Try again.",
         "err.input": "Type an English word or phrase",
+        "badge.light": "Light",
+        "badge.full": "Breakdown",
+        "badge.sentence": "Phrase",
       },
     };
     function t(k: string) {
@@ -965,10 +1858,6 @@ function Index() {
       }
       el.innerHTML = `<div class="lib-words">${filtered
         .map((h) => {
-          const b = h.breakdown || {};
-          const cefr = b.level
-            ? `<span class="badge cefr">${escapeHtml(b.level)}</span>`
-            : "";
           return `
             <div class="word-card" data-hid="${escapeHtml(h.id)}">
               <div class="wc-head">
@@ -979,7 +1868,6 @@ function Index() {
                 <div class="wc-word">${escapeHtml(h.word)}</div>
                 ${h.translation ? `<div class="wc-translation">${escapeHtml(h.translation)}</div>` : ""}
                 <div class="wc-meta">
-                  ${cefr}
                   <span class="wc-date">${escapeHtml(fmtDateTime(h.updated_at))}</span>
                 </div>
               </div>
@@ -1021,31 +1909,26 @@ function Index() {
           if (!entry || !entry.breakdown) return;
           const obj = entry.breakdown;
           const inner = c.querySelector(".wc-detail-inner") as HTMLElement;
-          let html = "";
-          if (obj.mode === "context") html = renderContext(obj);
-          else if (obj.mode === "sentence") html = renderSentence(obj);
-          else if (obj.mode === "ru-map") html = renderRuMap(obj);
-          else if (obj._light) html = renderModeShell(obj, obj._light, "ready");
-          else html = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
-          inner.innerHTML = html;
-          if (obj.word) {
+          inner.innerHTML = renderUnifiedBreakdown(obj);
+          const word = entry.word || getWordFromBreakdown(obj);
+          if (word) {
             const row = document.createElement("div");
             row.className = "save-row";
             row.style.marginTop = "16px";
-            const saved = findSavedByWord(obj.word);
+            const saved = findSavedByWord(word);
             if (saved) {
               row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
             } else {
               row.innerHTML = `<button class="btn-save">${escapeHtml(t("save.btn"))}</button>`;
               row.querySelector("button")!.addEventListener("click", (ev) => {
                 ev.stopPropagation();
-                openFolderPickerFor(row, obj);
+                openFolderPickerFor(row, obj, word);
               });
             }
             inner.appendChild(row);
           }
           attachWidgetToggles(inner);
-          if (obj._light) attachModeTabs(inner);
+          attachDeepDiveHandlers(inner);
           c.classList.add("open");
         });
       });
@@ -1167,20 +2050,24 @@ function Index() {
       wordsList = wordsList.filter((w) => w.id !== id);
     }
     function findSavedByWord(word: string): (WordRow & { folderName: string }) | null {
-      const w = wordsList.find((x) => x.word === word);
+      if (!word) return null;
+      const normalized = word.trim().toLowerCase();
+      const w = wordsList.find((x) => x.word.trim().toLowerCase() === normalized);
       if (!w) return null;
       if (w.folder_id === "__all__") return { ...w, folderName: t("lib.all") };
       const f = foldersList.find((f) => f.id === w.folder_id);
       return { ...w, folderName: f?.name || t("lib.all") };
     }
-
     let lastBreakdown: any = null;
+    let lastBreakdownWord: string = "";
+    let lastLightData: any = null;
 
     function renderSaveRow() {
       const existing = results!.querySelector(".save-row");
       if (existing) existing.remove();
       if (!lastBreakdown) return;
-      const word = lastBreakdown.word;
+      const word = getWordFromBreakdown(lastBreakdown);
+      if (!word) return;
       const row = document.createElement("div");
       row.className = "save-row fade-up";
       row.style.animationDelay = ".4s";
@@ -1197,6 +2084,7 @@ function Index() {
       results!.appendChild(row);
       row.querySelector("#saveBtn")!.addEventListener("click", (e) => {
         e.stopPropagation();
+        lastBreakdownWord = word;
         openFolderPicker(row);
       });
     }
@@ -1280,15 +2168,18 @@ function Index() {
       document.querySelectorAll(".folder-pop").forEach((p) => p.remove());
     }
 
-    function openFolderPickerFor(row: HTMLElement, breakdown: any) {
+    function openFolderPickerFor(row: HTMLElement, breakdown: any, word: string) {
       lastBreakdown = breakdown;
+      lastBreakdownWord = word;
       openFolderPicker(row);
     }
 
     async function saveCurrentToFolder(folderId: string) {
-      if (!lastBreakdown || !currentUserId) return;
+      if (!lastBreakdown) return;
       const b = lastBreakdown;
-      await addWordToFolder(folderId, b.word, b);
+      const word = lastBreakdownWord || getWordFromBreakdown(b);
+      if (!word) return;
+      await addWordToFolder(folderId, word, b);
       closeFolderPicker();
       renderSaveRow();
       renderLibrary();
@@ -1483,10 +2374,7 @@ function Index() {
           const b = w.breakdown || {};
           const firstCtx = (b.contexts && b.contexts[0]) || {};
           const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-          const translation = firstCtx.title || firstEx.ru || "";
-          const cefr = b.level
-            ? `<span class="badge cefr">${escapeHtml(b.level)}</span>`
-            : "";
+          const translation = (b.translation && typeof b.translation === "object" ? b.translation.main : b.translation) || firstCtx.title || firstEx.ru || "";
           return `
             <div class="word-card" data-id="${escapeHtml(w.id)}">
               <div class="wc-head">
@@ -1497,7 +2385,6 @@ function Index() {
                 <div class="wc-word">${escapeHtml(w.word)}</div>
                 ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
                 <div class="wc-meta">
-                  ${cefr}
                   <span class="wc-date">${escapeHtml(fmtDate(w.created_at))}</span>
                 </div>
               </div>
@@ -1542,15 +2429,9 @@ function Index() {
           if (!saved || !saved.breakdown) return;
           const obj = saved.breakdown;
           const inner = c.querySelector(".wc-detail-inner") as HTMLElement;
-          if (obj.mode === "context") {
-            inner.innerHTML = renderContext(obj);
-          } else if (obj._light) {
-            inner.innerHTML = renderModeShell(obj, obj._light, "ready");
-          } else {
-            inner.innerHTML = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
-          }
+          inner.innerHTML = renderUnifiedBreakdown(obj);
           attachWidgetToggles(inner);
-          if (obj._light) attachModeTabs(inner);
+          attachDeepDiveHandlers(inner);
           c.classList.add("open");
         });
       });
@@ -1610,23 +2491,30 @@ function Index() {
 
     let busy = false;
 
-    async function fetchAllText(prompt: string): Promise<string> {
+    async function fetchStream(
+      payload: { input?: string; mode: "light" | "full" | "sentence"; canonical?: string; pos?: string; type?: string },
+      onChunk: (text: string, isFinished: boolean) => void
+    ): Promise<string> {
       const resp = await fetch("/api/ai-breakdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(payload),
       });
       if (!resp.ok || !resp.body) {
         const text = await resp.text();
-        throw new Error(text || "Anthropic API error");
+        throw new Error(text || "AI breakdown error");
       }
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          onChunk(buf, true);
+          break;
+        }
         buf += decoder.decode(value, { stream: true });
+        onChunk(buf, false);
       }
       return buf;
     }
@@ -1645,227 +2533,399 @@ function Index() {
       if (busy) return;
       busy = true;
       goBtn!.disabled = true;
-      results!.innerHTML = "";
-      loading!.style.display = "flex";
-      searchWrap!.classList.add("compact");
-
-      const isCyrillic = /[\u0400-\u04FF]/.test(q);
-      const ctxSuffix = ctx ? `\n\nКонтекст от пользователя: ${ctx}` : "";
-      const userBlock = `\n\nВвод пользователя: ${q}${ctxSuffix}`;
-
-      // Cyrillic input → keep legacy single-request flow (RU-map, no Light/Full tabs)
-      if (isCyrillic) {
-        try {
-          const buf = await fetchAllText(`${RU_SYSTEM_PROMPT}${userBlock}`);
-          loading!.style.display = "none";
-          const cleaned = buf.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-          let obj: any = null;
-          try { obj = JSON.parse(cleaned); } catch {
-            const m = cleaned.match(/\{[\s\S]*\}/);
-            if (m) { try { obj = JSON.parse(m[0]); } catch {} }
-          }
-          if (!obj) {
-            results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-          } else if (obj.error) {
-            results!.innerHTML = `<div class="error">${escapeHtml(obj.error)}</div>`;
-          } else if (obj.mode === "ru-map") {
-            results!.innerHTML = renderRuMap(obj);
-            attachChips();
-          } else {
-            results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-          }
-        } catch (err) {
-          console.error(err);
-          loading!.style.display = "none";
-          results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-        } finally {
-          busy = false;
-          goBtn!.disabled = false;
-        }
-        return;
-      }
-
-      // English input → fire Light immediately, Full on demand
+      
       let lightData: any = null;
       let fullObj: any = null;
-      let fullStatus: "idle" | "loading" | "ready" = "idle";
 
-      const updateFullPane = () => {
-        const tabs = results!.querySelectorAll<HTMLButtonElement>(".mode-tab");
-        const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
-        if (!fullPane) return;
-        
-        if (fullStatus === "ready" && fullObj) {
-           fullPane.innerHTML = `<div data-stage1>${renderStage1(fullObj)}</div>${renderStage2(fullObj)}`;
-           attachWidgetToggles(fullPane);
-        }
+      loading!.style.display = "none";
+      results!.innerHTML = renderLightContent(lightData, true);
+      attachWidgetToggles(results!);
+      attachChips();
+      searchWrap!.classList.add("compact");
 
-        tabs.forEach((tb) => {
-          if (tb.getAttribute("data-mt") === "full") {
-            if (fullStatus === "loading") {
-               tb.disabled = true;
-               tb.innerHTML = `<span>Full</span><span class="mt-spin" aria-hidden="true"></span>`;
-               tb.removeAttribute("title");
-            } else if (fullStatus === "ready") {
-               tb.disabled = false;
-               tb.innerHTML = `<span>Full</span>`;
-               tb.removeAttribute("title");
+
+      try {
+        // Fetch Light stream
+        let lastRenderedHtml = "";
+        await fetchStream({ input: q, mode: "light" }, (accumulated, isFinished) => {
+          loading!.style.display = "none";
+          
+          const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+          let parsed = null;
+          try {
+            parsed = tryRepairJson(cleaned);
+          } catch {}
+          
+          if (parsed) {
+            if (parsed._light) {
+              lightData = parsed._light;
+              fullObj = parsed.breakdown;
+            } else {
+              lightData = parsed;
+            }
+          } else {
+            lightData = cleaned;
+          }
+
+          if (lightData && typeof lightData === "object" && (lightData.mode === "correction" || lightData.mode === "sentence" || lightData.error)) {
+            if (lightData.mode === "sentence") {
+              // Sentence mode has its own dedicated post-stream rendering, so we do not render it here
+              return;
+            }
+            // Non-standard mode: fall back to innerHTML update
+            const newHtml = renderLightContent(lightData, !isFinished);
+            if (newHtml !== lastRenderedHtml) {
+              results!.innerHTML = newHtml;
+              lastRenderedHtml = newHtml;
+              attachWidgetToggles(results!);
+              attachChips();
+            }
+            return;
+          }
+
+          // Standard word/phrase mode: incremental DOM replacement
+          if (lightData && typeof lightData === "object") {
+            // Prepend input_note if it appears
+            const isInputNoteReady = isFinished || !!lightData.wave1;
+            if (lightData.input_note && isInputNoteReady && !results!.querySelector(".input-note-alert")) {
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `
+                <div class="input-note-alert" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255,193,7,0.1); border-left: 4px solid var(--accent); border-radius: 4px; font-size: 0.95rem; line-height: 1.5;">
+                  💡 <em>${escapeHtml(lightData.input_note)}</em>
+                </div>
+              `;
+              results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
+            }
+
+            // Replace Wave 1 skeleton if ready
+            const isWave1Ready = isFinished || !!lightData.wave2;
+            const skeleton1 = results!.querySelector('[data-skeleton="wave1"]');
+            if (skeleton1 && isWave1Ready && lightData.wave1) {
+              const title = lightData.wave1.title || "Что ты ввёл";
+              const content = parseMarkdown(lightData.wave1.content || "");
+              const word = lightData.canonical || lightData.word || q || "";
+              const isOpen = getCardWidgetState(word, title, true);
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `<div class="skel-fade-in">${widgetHtml("📝", title, content, isOpen, 0, false)}</div>`;
+              const realNode = tempDiv.firstElementChild!;
+              skeleton1.replaceWith(realNode);
+              attachWidgetToggles(realNode as HTMLElement);
+              attachChips();
+            }
+
+            // Replace Wave 2 skeleton if ready
+            const isWave2Ready = isFinished || !!lightData.wave3 || !!lightData.deep_dive;
+            const skeleton2 = results!.querySelector('[data-skeleton="wave2"]');
+            if (skeleton2 && isWave2Ready && lightData.wave2) {
+              const title = lightData.wave2.title || "Что это вообще";
+              const content = parseMarkdown(lightData.wave2.content || "");
+              const word = lightData.canonical || lightData.word || q || "";
+              const isOpen = getCardWidgetState(word, title, false);
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `<div class="skel-fade-in">${widgetHtml("💡", title, content, isOpen, 100, false)}</div>`;
+              const realNode = tempDiv.firstElementChild!;
+              skeleton2.replaceWith(realNode);
+              attachWidgetToggles(realNode as HTMLElement);
+              attachChips();
+            }
+
+            // Replace Wave 3 skeleton with deep_dive skeleton if mode is word
+            if (lightData.mode === "word") {
+              const skeleton3 = results!.querySelector('[data-skeleton="wave3"]');
+              if (skeleton3) {
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = `
+                  <div data-skeleton="deep_dive" class="skeleton-widget wave-skeleton deep-dive-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 24px; min-height: 180px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev);">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 16px;">
+                      <div class="skeleton-line title" style="width: 20%; height: 12px; margin-bottom: 0;"></div>
+                      <div class="skeleton-line title" style="width: 30%; height: 18px; margin-bottom: 0; border-radius: 999px;"></div>
+                    </div>
+                    <div class="skeleton-line title" style="width: 45%; height: 22px; margin-bottom: 12px;"></div>
+                    <div class="skeleton-line long" style="height: 14px; margin-bottom: 8px;"></div>
+                    <div class="skeleton-line short" style="height: 14px; margin-bottom: 20px;"></div>
+                    <div class="skeleton-line long" style="height: 46px; border-radius: 8px; margin-bottom: 0;"></div>
+                  </div>
+                  <div class="full-continuation-container"></div>
+                `;
+                const parent = skeleton3.parentNode!;
+                while (tempDiv.firstChild) {
+                  parent.insertBefore(tempDiv.firstChild, skeleton3);
+                }
+                skeleton3.remove();
+              }
+            }
+
+            // Replace deep_dive skeleton if finished
+            const skeletonDeepDive = results!.querySelector('[data-skeleton="deep_dive"]');
+            if (skeletonDeepDive && isFinished) {
+              if (!lightData.deep_dive) {
+                lightData.deep_dive = {
+                  recommended: true,
+                  label: `Разобрать подробнее: ${lightData.canonical || ""}`,
+                  hint: "Узнать подробности, готовую грамматику и частые грабли."
+                };
+              }
+              const recommendedBadgeHtml = lightData.deep_dive.recommended
+                ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);">🔥 Стоит открыть</span>`
+                : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1);">💡 Обзора достаточно</span>`;
+
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `
+                <div class="deep-dive-card fade-up glass-card" style="margin-top: 28px; padding: 24px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 16px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Раздел</div>
+                    ${recommendedBadgeHtml}
+                  </div>
+                  <div>
+                    <div class="deep-dive-title" style="font-size: 20px; font-weight: 800; color: var(--text); font-family: inherit;">Глубокий разбор</div>
+                    <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5; margin-top: 8px;">
+                      ${escapeHtml(lightData.deep_dive.hint || "")}
+                    </div>
+                  </div>
+                  <div style="margin-top: 4px;">
+                    <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s;" data-canonical="${escapeHtml(lightData.canonical || "")}">
+                      ${escapeHtml(lightData.deep_dive.label || "Разобрать подробнее")}
+                    </button>
+                  </div>
+                </div>
+              `;
+              skeletonDeepDive.replaceWith(tempDiv.firstElementChild!);
+              attachDeepDiveHandlers(results!);
+            }
+
+            // Replace Wave 3 skeleton if finished (legacy/sentence mode)
+            const skeleton3 = results!.querySelector('[data-skeleton="wave3"]');
+            if (skeleton3 && isFinished) {
+              if (Array.isArray(lightData.wave3) && lightData.wave3.length) {
+                const cardsHtml = lightData.wave3.map((item: any) => renderRecommendationCard(item)).join("");
+                
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = `
+                  <div class="wave3-section fade-up" style="margin-top: 24px;">
+                    <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
+                    <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                      ${cardsHtml}
+                    </div>
+                  </div>
+                `;
+                skeleton3.replaceWith(tempDiv.firstElementChild!);
+                attachChips();
+              } else {
+                skeleton3.remove();
+              }
             }
           }
         });
-      };
 
-      const processFullObj = () => {
-        if (!fullObj) return;
-        if (fullObj.error) {
-          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
-          if (fullPane) fullPane.innerHTML = `<div class="error">${escapeHtml(fullObj.error)}</div>`;
-          return;
-        }
-        
-        if (fullObj.mode === "sentence") {
-          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
-          if (fullPane) fullPane.innerHTML = renderSentence(fullObj);
+        // Process Light completed state
+        if (lightData && typeof lightData === "object") {
+          if (lightData.mode === "correction") {
+            busy = false;
+            goBtn!.disabled = false;
+            return;
+          }
           
-          fullObj._light = lightData ?? "";
-          lastBreakdown = { ...fullObj, word: fullObj.sentence };
-          addHistory({ word: fullObj.sentence, translation: fullObj.translation || "", mode: "sentence" }, lastBreakdown);
-          renderSaveRow();
-          return;
-        }
-        
-        if (fullObj.mode === "context") {
-          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
-          if (fullPane) {
-            fullPane.innerHTML = renderContext(fullObj);
+          if (lightData.mode === "sentence") {
+            results!.innerHTML = renderSentence({ mode: "sentence" }, true);
+            attachWidgetToggles(results!);
             attachChips();
-          }
-          if (fullObj.word) {
-            addHistory({ word: fullObj.word, translation: fullObj.query || "", mode: "context" }, fullObj);
-          }
-          return;
-        }
 
-        if (fullObj.mode === "ru-map") {
-          const fullPane = results!.querySelector<HTMLElement>('.mode-pane[data-pane="full"]');
-          if (fullPane) {
-            fullPane.innerHTML = renderRuMap(fullObj);
-            attachChips();
-          }
-          return;
-        }
-
-        // Normal word mode
-        fullObj._light = lightData ?? "";
-        updateFullPane();
-        
-        lastBreakdown = fullObj;
-        const existingSaved = wordsList.find((w) => w.word === fullObj.word);
-        if (existingSaved && currentUserId) {
-          existingSaved.breakdown = fullObj;
-          supabase
-            .from("words")
-            .update({ breakdown: JSON.stringify(fullObj) })
-            .eq("id", existingSaved.id)
-            .then(() => {});
-        }
-        const firstCtx = (fullObj.contexts && fullObj.contexts[0]) || {};
-        addHistory({ word: fullObj.word, translation: firstCtx.title || "", mode: fullObj.mode || "word" }, fullObj);
-        renderSaveRow();
-      };
-
-      const fetchFull = () => {
-        fullStatus = "loading";
-        updateFullPane();
-
-        fetchAllText(`${SYSTEM_PROMPT}${userBlock}`)
-          .then((txt) => {
-            const cleaned = txt.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+            let sentenceObj: any = null;
             try {
-              fullObj = JSON.parse(cleaned);
-            } catch {
-              const m = cleaned.match(/\{[\s\S]*\}/);
-              if (m) { try { fullObj = JSON.parse(m[0]); } catch {} }
-            }
-            if (!fullObj) fullObj = { error: t("err.generic") };
-          })
-          .catch((e) => {
-            console.warn("full failed", e);
-            fullObj = { error: t("err.generic") };
-          })
-          .finally(() => {
-            fullStatus = "ready";
-            updateFullPane();
-            processFullObj();
-          });
-      };
+              await fetchStream({ input: q, mode: "sentence" }, (accumulated, isFinished) => {
+                if (!isFinished) return; // Buffer response to prevent skeleton jumpiness and incremental word rendering
+                const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+                let parsed = null;
+                try {
+                  parsed = tryRepairJson(cleaned);
+                } catch {}
+                
+                sentenceObj = parsed ?? cleaned;
+                if (sentenceObj && typeof sentenceObj === "object") {
+                  sentenceObj.sentence = sentenceObj.sentence || q;
+                  results!.innerHTML = renderSentence(sentenceObj, false);
+                  attachWidgetToggles(results!);
+                  attachChips();
+                }
+              });
 
-      const renderShell = () => {
-        loading!.style.display = "none";
-        results!.innerHTML = renderModeShell(fullObj, lightData, fullStatus);
-        const root = results!.querySelector(".mode-tabs")?.parentElement as HTMLElement | null;
-        if (root) {
-          attachModeTabs(root);
-          attachWidgetToggles(root);
-          
-          const fullTab = root.querySelector('.mode-tab[data-mt="full"]') as HTMLButtonElement | null;
-          if (fullTab && fullStatus === "idle") {
-            fullTab.addEventListener("click", () => {
-              if (fullStatus !== "idle") return;
-              fetchFull();
-            });
+              if (sentenceObj && typeof sentenceObj === "object") {
+                sentenceObj.mode = "sentence";
+                sentenceObj.sentence = sentenceObj.sentence || q;
+                sentenceObj.word = q;
+                lastBreakdown = sentenceObj;
+
+                // Sync history locally and cloud-wise
+                const mainTrans = sentenceObj.translation?.main || "";
+                await addHistory({ word: q, translation: mainTrans, mode: "sentence" }, sentenceObj);
+                renderSaveRow();
+              }
+            } catch (err) {
+              console.error("Sentence breakdown stream failed:", err);
+              results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
+            } finally {
+              busy = false;
+              goBtn!.disabled = false;
+            }
+            return;
+          }
+
+          const { canonical } = lightData;
+          if (canonical) {
+            const trans = lightData.wave1?.content ? lightData.wave1.content.split("\n")[0] : "";
+            lastLightData = lightData; // store for lazy load/runFull
+
+            // Check if we already have the full breakdown in the response or local cache
+            let unifiedBreakdown = null;
+            if (fullObj) {
+              unifiedBreakdown = { _light: lightData, breakdown: fullObj };
+            } else {
+              const prevHist = historyList.find(h => h.word.toLowerCase() === canonical.toLowerCase() && h.breakdown && (h.breakdown.blocks || (h.breakdown.breakdown && h.breakdown.breakdown.blocks)));
+              const prevSaved = wordsList.find(w => w.word.toLowerCase() === canonical.toLowerCase() && w.breakdown && (w.breakdown.blocks || (w.breakdown.breakdown && w.breakdown.breakdown.blocks)));
+              const prev = prevHist || prevSaved;
+              if (prev && prev.breakdown) {
+                unifiedBreakdown = prev.breakdown;
+              }
+            }
+
+            if (unifiedBreakdown) {
+              // Has cached Full — show it directly using unified renderer
+              lastBreakdown = unifiedBreakdown;
+              results!.innerHTML = renderUnifiedBreakdown(unifiedBreakdown);
+              
+              // Ensure we save it under full_json in history if we got a unified response from server but didn't have it locally
+              const alreadyInHistoryWithFull = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase() && h.mode === "full_json");
+              if (!alreadyInHistoryWithFull) {
+                addHistory({ word: canonical, translation: trans, mode: "full_json" }, unifiedBreakdown);
+              }
+            } else {
+              // No cached Full — show Light and save to history
+              lastBreakdown = { _light: lightData };
+              results!.innerHTML = renderUnifiedBreakdown(lastBreakdown);
+              
+              // Only add if not already in history
+              const alreadyInHistory = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase());
+              if (!alreadyInHistory) {
+                addHistory({ word: canonical, translation: trans, mode: "light_json" }, lastBreakdown);
+              }
+            }
+
+            attachWidgetToggles(results!);
+            attachDeepDiveHandlers(results!);
+            attachChips();
+            renderSaveRow();
           }
         }
-      };
-
-      try {
-        const txt = await fetchAllText(`${LIGHT_SYSTEM_PROMPT}${userBlock}`);
-        const cleaned = (txt || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-        try {
-          lightData = JSON.parse(cleaned);
-        } catch {
-          const m = cleaned.match(/\{[\s\S]*\}/);
-          if (m) { try { lightData = JSON.parse(m[0]); } catch {} }
-        }
-        if (!lightData) lightData = cleaned;
       } catch (err) {
-        console.warn("light failed", err);
-        lightData = "";
-      }
-
-      try {
-        const prevHist = historyList.find(h => h.word.toLowerCase() === q.toLowerCase() && h.breakdown && h.breakdown.contexts);
-        const prevSaved = wordsList.find(w => w.word.toLowerCase() === q.toLowerCase() && w.breakdown && w.breakdown.contexts);
-        const prev = prevHist || prevSaved;
-        if (prev && prev.breakdown) {
-          fullObj = prev.breakdown;
-          fullStatus = "ready";
-        }
-
-        renderShell();
-
-        // Save history & prepare Save Row
-        let baseObj = fullObj;
-        if (!baseObj && typeof lightData === "object" && lightData.word) {
-            baseObj = { word: lightData.word, mode: "word", _light: lightData };
-        } else if (baseObj) {
-            baseObj._light = lightData ?? "";
-        }
-
-        if (baseObj && baseObj.word) {
-            lastBreakdown = baseObj;
-            const firstCtx = (baseObj.contexts && baseObj.contexts[0]) || (lightData && lightData.contexts && lightData.contexts[0]) || {};
-            addHistory({ word: baseObj.word, translation: firstCtx.title || "", mode: baseObj.mode || "word" }, baseObj);
-            renderSaveRow();
-        }
-
-      } catch (err) {
-        console.error(err);
+        console.error("Light breakdown failed:", err);
         loading!.style.display = "none";
         results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
       } finally {
         busy = false;
         goBtn!.disabled = false;
+      }
+    }
+
+    // runFull: directly fetch Full breakdown for a canonical word (from Wave 3 chip click)
+    async function runFull(canonical: string) {
+      if (busy) return;
+      busy = true;
+
+      searchWrap!.classList.add("compact");
+      results!.innerHTML = renderStage2(null, "full", true);
+      attachWidgetToggles(results!);
+      attachChips();
+
+      // Pass pos/type from the last known Light response if available
+      const ld = lastLightData;
+      const pos = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.pos : "") || "";
+      const type = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.type : "") || "";
+
+      let fullObj: any = null;
+
+      try {
+        await fetchStream({ canonical, pos, type, mode: "full" }, (accumulated, isFinished) => {
+          const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+          let parsed = null;
+          try { parsed = tryRepairJson(cleaned); } catch {}
+          fullObj = parsed ?? cleaned;
+
+          if (fullObj && typeof fullObj === "object") {
+            // Prepend stage1Html (main word header) when it first appears
+            if (fullObj.word && !results!.querySelector("[data-stage1]")) {
+              const tempDiv = document.createElement("div");
+              tempDiv.innerHTML = `<div data-stage1>${renderStage1(fullObj)}</div>`;
+              results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
+            }
+
+            // Replace completed blocks incrementally
+            if (Array.isArray(fullObj.blocks)) {
+              const completedCount = isFinished ? fullObj.blocks.length : Math.max(0, fullObj.blocks.length - 1);
+              for (let i = 0; i < completedCount; i++) {
+                const skeletonN = results!.querySelector(`[data-skeleton="${i}"]`);
+                if (skeletonN) {
+                  const block = fullObj.blocks[i];
+                  const icon = getBlockIcon(block.title);
+                  const title = block.title || "";
+                  const content = parseMarkdown(block.content || "");
+                  const isOpen = getCardWidgetState(canonical, title, false);
+                  const blockHtml = `<div class="skel-fade-in">${widgetHtml(icon, title, content, isOpen, 0, false)}</div>`;
+
+                  const tempDiv = document.createElement("div");
+                  tempDiv.innerHTML = blockHtml;
+                  const realNode = tempDiv.firstElementChild!;
+                  skeletonN.replaceWith(realNode);
+                  attachWidgetToggles(realNode as HTMLElement);
+                }
+              }
+            }
+
+            // Clean up remaining skeletons and append recommendations on completion
+            if (isFinished) {
+              results!.querySelectorAll("[data-skeleton]").forEach((el) => el.remove());
+              
+              const widgetsContainer = results!.querySelector(".widgets");
+              if (widgetsContainer && !results!.querySelector(".recommendations-section") && Array.isArray(fullObj.recommendations) && fullObj.recommendations.length) {
+                const recsHtml = fullObj.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
+                
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = `
+                  <div class="recommendations-section fade-up" style="margin-top: 24px;">
+                    <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
+                    <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                      ${recsHtml}
+                    </div>
+                  </div>
+                `;
+                widgetsContainer.parentNode!.insertBefore(tempDiv.firstElementChild!, widgetsContainer.nextSibling);
+                attachChips();
+              }
+            }
+          }
+        });
+
+        if (fullObj && typeof fullObj === "object") {
+          lastBreakdown = fullObj;
+          const existingSaved = wordsList.find((w) => w.word === fullObj.word);
+          if (existingSaved) {
+            existingSaved.breakdown = fullObj;
+            if (currentUserId) {
+              supabase.from("words").update({ breakdown: JSON.stringify(fullObj) }).eq("id", existingSaved.id).then(() => {});
+            } else {
+              store.words = store.words.map((w: any) =>
+                w.word === fullObj.word ? { ...w, breakdown: fullObj } : w
+              );
+              saveStore(store);
+            }
+          }
+          addHistory({ word: fullObj.word || canonical, translation: "", mode: "full_json" }, fullObj);
+          renderSaveRow();
+        }
+      } catch (err) {
+        console.warn("Full breakdown failed:", err);
+        results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
+      } finally {
+        busy = false;
       }
     }
 

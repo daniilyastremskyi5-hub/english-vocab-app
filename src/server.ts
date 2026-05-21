@@ -1,4 +1,41 @@
 import "./lib/error-capture";
+import fs from "node:fs";
+import path from "node:path";
+
+// Load .dev.vars and .env into process.env for local development
+try {
+  const cwd = process.cwd();
+  const devVarsPath = path.resolve(cwd, ".dev.vars");
+  if (fs.existsSync(devVarsPath)) {
+    const devVars = fs.readFileSync(devVarsPath, "utf-8");
+    devVars.split("\n").forEach((line) => {
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const k = match[1].trim();
+        const v = match[2].trim().replace(/^['"]|['"]$/g, "");
+        if (k && !process.env[k]) {
+          process.env[k] = v;
+        }
+      }
+    });
+  }
+  const envPath = path.resolve(cwd, ".env");
+  if (fs.existsSync(envPath)) {
+    const envVars = fs.readFileSync(envPath, "utf-8");
+    envVars.split("\n").forEach((line) => {
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const k = match[1].trim();
+        const v = match[2].trim().replace(/^['"]|['"]$/g, "");
+        if (k && !process.env[k]) {
+          process.env[k] = v;
+        }
+      }
+    });
+  }
+} catch (e) {
+  console.warn("Failed to load local env files:", e);
+}
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
@@ -69,6 +106,13 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      if (env && typeof env === "object") {
+        for (const [key, value] of Object.entries(env)) {
+          if (typeof value === "string") {
+            process.env[key] = value;
+          }
+        }
+      }
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);

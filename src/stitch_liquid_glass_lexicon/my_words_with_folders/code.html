@@ -1,0 +1,201 @@
+<!DOCTYPE html><html class="light" lang="en" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Glossa - My Words</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#f0edef",
+                        "surface-dim": "#dcd9dc",
+                        "error-container": "#ffdad6",
+                        "surface-container-lowest": "#ffffff",
+                        "primary-fixed-dim": "#bdc8d3",
+                        "secondary-container": "#dce0e5",
+                        "tertiary-fixed": "#e2e2e2",
+                        "surface-container-low": "#f6f3f5",
+                        "primary-fixed": "#dae3f0",
+                        "on-tertiary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "surface-variant": "#e4e2e4",
+                        "tertiary-container": "#dfdfdf",
+                        "on-secondary-fixed": "#171c20",
+                        "on-primary": "#ffffff",
+                        "secondary": "#5a5f63",
+                        "surface-container-high": "#eae7ea",
+                        "background": "#fcf8fb",
+                        "inverse-primary": "#bdc8d3",
+                        "on-primary-fixed": "#131d25",
+                        "on-primary-container": "#59636d",
+                        "surface-tint": "#565f6a",
+                        "outline": "#74777b",
+                        "inverse-on-surface": "#f3f0f2",
+                        "tertiary-fixed-dim": "#c6c6c7",
+                        "tertiary": "#5d5f5f",
+                        "secondary-fixed-dim": "#c3c7cc",
+                        "on-background": "#1b1b1d",
+                        "primary": "#565f6a",
+                        "surface": "#fcf8fb",
+                        "on-tertiary-container": "#616263",
+                        "on-secondary-fixed-variant": "#42474b",
+                        "on-tertiary-fixed": "#1a1c1c",
+                        "secondary-fixed": "#dfe3e8",
+                        "on-primary-fixed-variant": "#3e4851",
+                        "on-tertiary-fixed-variant": "#454747",
+                        "on-error-container": "#93000a",
+                        "on-surface-variant": "#44474b",
+                        "primary-container": "#d6e0ec",
+                        "on-secondary": "#ffffff",
+                        "surface-container-highest": "#e4e2e4",
+                        "on-error": "#ffffff",
+                        "on-surface": "#1b1b1d",
+                        "surface-bright": "#fcf8fb",
+                        "on-secondary-container": "#5e6367",
+                        "inverse-surface": "#303032",
+                        "outline-variant": "#c4c6cb"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "xxl": "20px",
+                        "3xl": "24px",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Hanken Grotesk"],
+                        "label-md": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "label-sm": ["Hanken Grotesk"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "headline-md": ["Hanken Grotesk"],
+                        "display": ["Hanken Grotesk"],
+                        "body-lg": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.01em", "fontWeight": "500"}],
+                        "headline-lg-mobile": ["28px", {"lineHeight": "34px", "fontWeight": "600"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.03em", "fontWeight": "600"}],
+                        "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "display": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDn9bkBGXUwopadLJqamQ5dNAe6OMQldyRNtziHlv82dGVCIn6n-OZnyeKwU3wiaxdbF9eGBfxvrJHXg0ql0dIkxbcstcrSQt33wnBBUDp1cINksFU_33sw2c6i8XzEywPaX9lpTaTANnKGN4L-ln69okDAGjunwHd4xSuORtACK4m0aJfu6U9Jgd_bm5dl74fXABAEgOfLr_jmueXPD2yzHllQJ28tiC1mXnRKU9nuT3uSmWi7OVYQhpda6J8WlcYPeZI0_W6iBB0');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+<style data-stitch-cursor=""></style><style data-stitch-scroll-lock=""></style></head>
+<body class="font-body-md text-on-surface">
+<!-- Top Navigation Anchor -->
+<header class="fixed top-4 left-4 z-50">
+<button class="bg-white/35 dark:bg-white/10 backdrop-blur-[20px] text-on-surface w-12 h-12 rounded-full flex items-center justify-center border border-white/60 shadow-[0_4px_24px_rgba(0,0,0,0.06)] hover:bg-white/50 transition-colors active:scale-95 transition-transform" data-icon="menu">
+<span class="material-symbols-outlined">menu</span>
+</button>
+</header><header class="fixed top-4 right-4 z-50"><button class="bg-white/35 dark:bg-white/10 backdrop-blur-[20px] text-on-surface w-12 h-12 rounded-full flex items-center justify-center border border-white/60 shadow-[0_4px_24px_rgba(0,0,0,0.06)] hover:bg-white/50 transition-colors active:scale-95 transition-transform" data-icon="search"><span class="material-symbols-outlined">search</span></button></header>
+<!-- Main Content Canvas -->
+<main class="pb-32 px-6 max-w-2xl mx-auto min-h-screen pt-20"><div class="flex items-center gap-3 overflow-x-auto pb-6 -mx-2 px-2 no-scrollbar scroll-smooth">
+    <button class="flex-shrink-0 w-10 h-10 rounded-full bg-white/30 backdrop-blur-xl border border-white/50 flex items-center justify-center text-on-surface hover:bg-white/50 transition-colors active:scale-95">
+        <span class="material-symbols-outlined text-xl">add</span>
+    </button>
+    <div class="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full bg-white/30 backdrop-blur-xl border border-white/50 text-on-surface hover:bg-white/50 transition-colors cursor-pointer">
+        <span class="material-symbols-outlined text-lg">folder</span>
+        <span class="text-label-md font-label-md">Favorites</span>
+    </div>
+    <div class="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full bg-white/30 backdrop-blur-xl border border-white/50 text-on-surface hover:bg-white/50 transition-colors cursor-pointer">
+        <span class="material-symbols-outlined text-lg">school</span>
+        <span class="text-label-md font-label-md">Academic</span>
+    </div>
+    <div class="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full bg-white/30 backdrop-blur-xl border border-white/50 text-on-surface hover:bg-white/50 transition-colors cursor-pointer">
+        <span class="material-symbols-outlined text-lg">flight</span>
+        <span class="text-label-md font-label-md">Travel</span>
+    </div>
+    <div class="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-full bg-white/30 backdrop-blur-xl border border-white/50 text-on-surface hover:bg-white/50 transition-colors cursor-pointer">
+        <span class="material-symbols-outlined text-lg">work</span>
+        <span class="text-label-md font-label-md">Work</span>
+    </div>
+</div>
+<!-- Header Section -->
+
+<!-- Vocabulary Library -->
+<div class="space-y-4">
+<!-- Word Card 1 -->
+<div class="glass-panel rounded-3xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.05)] hover:scale-[1.01] transition-transform cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-on-surface">ephemeral</h2>
+<span class="material-symbols-outlined text-primary" data-icon="star" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<p class="font-body-md text-secondary">Lasting for a very short time; transitory; fleeting.</p>
+<div class="mt-4 flex gap-2">
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Adjective</span>
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Greek</span>
+</div>
+</div>
+<!-- Word Card 2 -->
+<div class="glass-panel rounded-3xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.05)] hover:scale-[1.01] transition-transform cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-on-surface">loquacious</h2>
+<span class="material-symbols-outlined text-on-surface-variant/40" data-icon="star">star</span>
+</div>
+<p class="font-body-md text-secondary">Tending to talk a great deal; talkative.</p>
+<div class="mt-4 flex gap-2">
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Adjective</span>
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Latin</span>
+</div>
+</div>
+<!-- Word Card 3 -->
+<div class="glass-panel rounded-3xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.05)] hover:scale-[1.01] transition-transform cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-on-surface">serendipity</h2>
+<span class="material-symbols-outlined text-primary" data-icon="star" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<p class="font-body-md text-secondary">The occurrence and development of events by chance in a happy or beneficial way.</p>
+<div class="mt-4 flex gap-2">
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Noun</span>
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Persian</span>
+</div>
+</div>
+<!-- Word Card 4 -->
+<div class="glass-panel rounded-3xl p-5 shadow-[0_8px_32px_rgba(0,0,0,0.05)] hover:scale-[1.01] transition-transform cursor-pointer">
+<div class="flex justify-between items-start mb-2">
+<h2 class="font-headline-md text-on-surface">ethereal</h2>
+<span class="material-symbols-outlined text-on-surface-variant/40" data-icon="star">star</span>
+</div>
+<p class="font-body-md text-secondary">Extremely delicate and light in a way that seems too perfect for this world.</p>
+<div class="mt-4 flex gap-2">
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Adjective</span>
+<span class="px-3 py-1 rounded-full bg-secondary-container/30 border border-white/40 text-secondary text-label-sm font-label-sm">Literary</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Background Decoration (Abstract Glass Shapes) -->
+<div class="fixed -top-20 -right-20 w-80 h-80 bg-primary-container/30 blur-[100px] rounded-full -z-10"></div>
+<div class="fixed -bottom-20 -left-20 w-96 h-96 bg-secondary-container/30 blur-[100px] rounded-full -z-10"></div>
+
+
+</body></html>

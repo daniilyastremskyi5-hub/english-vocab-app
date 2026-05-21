@@ -11,7 +11,7 @@ type Msg = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  kind?: "normal" | "summary";
+  kind?: "normal" | "summary" | "word-summary";
 };
 
 type Folder = { id: string; name: string };
@@ -43,6 +43,7 @@ export function AssistantSidebar() {
   const [open, setOpen] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [chatMode, setChatMode] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
@@ -52,8 +53,9 @@ export function AssistantSidebar() {
   const [words, setWords] = useState<WordRow[]>([]);
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
-  const [mobileDraft, setMobileDraft] = useState("");
+  const [cardSavedIds, setCardSavedIds] = useState<Set<string>>(new Set());
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -98,7 +100,12 @@ export function AssistantSidebar() {
   }
 
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const timer = setTimeout(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    }, 100);
+    return () => clearTimeout(timer);
   }, [messages.length, sending]);
 
   function buildContext(): string {
@@ -175,31 +182,101 @@ export function AssistantSidebar() {
     }
   }
 
-  async function makeSummary() {
-    if (sending || messages.length === 0) return;
+  function editMessage(id: string) {
+    const msg = messages.find((m) => m.id === id);
+    if (!msg) return;
+    setDraft(msg.content);
+    setEditingMessageId(id);
+    setEditingSummaryId(null);
+  }
+
+  async function submitMessageEdit() {
+    const text = draft.trim();
+    if (!text || sending || !editingMessageId) return;
+
+    const idx = messages.findIndex((m) => m.id === editingMessageId);
+    if (idx === -1) return;
+
+    const newMessages = messages.slice(0, idx);
+    const editedMsg: Msg = { ...messages[idx], content: text };
+    const next = [...newMessages, editedMsg];
+
+    setMessages(next);
+    setDraft("");
+    setEditingMessageId(null);
     setSending(true);
+
     try {
-      // Build a transcript and send it as a single user message so Anthropic
-      // gets a valid conversation (must start AND end with a user message).
-      const transcript = messages
-        .map((m) => `${m.role === "user" ? "Пользователь" : "Ассистент"}: ${m.content}`)
-        .join("\n\n");
-      const summaryRequest: Msg = {
-        id: uid(),
-        role: "user",
-        content:
-          "Сделай краткое резюме на русском языке на основе следующего диалога. " +
-          "3–6 предложений: ключевые вопросы пользователя и основные выводы/ответы. " +
-          "Только текст резюме, без вступлений.\n\n--- ДИАЛОГ ---\n" +
-          transcript,
-      };
-      const text = await callClaude([summaryRequest]);
-      setMessages((prev) => [
-        ...prev,
-        { id: uid(), role: "assistant", content: text, kind: "summary" },
+      const reply = await callClaude(next);
+      const { displayed } = handleBreakdownMarker(reply);
+      setMessages([...next, { id: uid(), role: "assistant", content: displayed }]);
+    } catch {
+      setMessages([
+        ...next,
+        { id: uid(), role: "assistant", content: "Ошибка соединения." },
       ]);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function makeSummary() {
+    if (sending || messages.length === 0) return;
+    setSending(true);
+    const { currentWord } = getPageInfo();
+    try {
+      const transcript = messages
+        .map((m) => `${m.role === "user" ? "Пользователь" : "Ассистент"}: ${m.content}`)
+        .join("\n\n");
+        
+      const prompt = 
+        `На основе переписки выше напиши КРАТКОЕ резюме (максимум 5-7 строк) по обсуждению слова "${currentWord || "текущего слова"}".\n\n` +
+        `Фокусируйся ТОЛЬКО на темах, о которых спрашивал пользователь в этом диалоге — не повторяй весь разбор слова со страницы.\n\n` +
+        `Структура:\n` +
+        `- 2-3 предложения, суммирующих ключевые моменты из разговора\n` +
+        `- 1-2 практических совета или рекомендации, релевантных обсужденному\n\n` +
+        `Не включай разделы, которые не упоминались в чате. Будь лаконичен. Отвечай на русском. Резюме должно ощущаться как личная заметка из разговора, а не словарная статья.`;
+
+      const summaryRequest: Msg = {
+        id: uid(),
+        role: "user",
+        content: prompt,
+      };
+      
+      const text = await callClaude([summaryRequest]);
+      setMessages((prev) => [
+        ...prev,
+        { id: uid(), role: "assistant", content: text, kind: "word-summary" },
+      ]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function saveCardToLibrary(msgId: string, content: string) {
+    if (!userId) return;
+    const { currentWord } = getPageInfo();
+    const wordToSave = currentWord || "Note";
+    
+    // Save to 'words' table so it appears in Library
+    const { error } = await supabase.from("words").insert({
+      user_id: userId,
+      folder_id: "__all__",
+      word: wordToSave,
+      breakdown: JSON.stringify({ 
+        isAssistantSummary: true,
+        summary: content,
+        mode: "context",
+        title: "Резюме ассистента",
+        context: content
+      })
+    });
+
+    if (!error) {
+      setCardSavedIds(prev => new Set(prev).add(msgId));
+      setSavedToast("Карточка сохранена в My Words");
+      setTimeout(() => setSavedToast(null), 2000);
+      loadLibrary(userId);
     }
   }
 
@@ -302,17 +379,16 @@ export function AssistantSidebar() {
 
   function submitMobileBreakdown(e?: FormEvent) {
     if (e) e.preventDefault();
-    const q = mobileDraft.trim();
+    const q = draft.trim();
     if (!q) return;
     if (typeof window !== "undefined" && window.__lnRunBreakdown) {
       window.__lnRunBreakdown(q, "");
     }
-    setMobileDraft("");
+    setDraft("");
   }
 
   function resetAll() {
     setMessages([]);
-    setMobileDraft("");
     setDraft("");
     setSavePanelFor(null);
     setEditingSummaryId(null);
@@ -323,223 +399,238 @@ export function AssistantSidebar() {
 
   if (isMobile) {
     return (
-      <>
-        <button
-          type="button"
-          className="m-newchat"
-          onClick={resetAll}
-          aria-label="Новый разбор"
-          title="Новый разбор"
-        >
-          ✏️
-        </button>
-
-        <form className="m-composer" onSubmit={submitMobileBreakdown} style={{ display: mobileSheetOpen ? "none" : "flex" }}>
-          <button
-            type="button"
-            className="m-composer-chat"
-            onClick={() => setMobileSheetOpen(true)}
-            aria-label="Открыть чат"
-          >
-            💬
-          </button>
-          <input
-            type="text"
-            className="m-composer-input"
-            placeholder="Разбери слово или фразу..."
-            value={mobileDraft}
-            onChange={(e) => setMobileDraft(e.target.value)}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <button
-            type="submit"
-            className="m-composer-send"
-            aria-label="Отправить"
-            disabled={!mobileDraft.trim()}
-          >
-            ↑
-          </button>
-        </form>
-
-        {mobileSheetOpen && (
-          <div className="m-sheet-backdrop" onClick={() => setMobileSheetOpen(false)}>
-            <div
-              className="m-sheet"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div
-                className="m-sheet-handle"
-                onClick={() => setMobileSheetOpen(false)}
-              />
-              <div className="m-sheet-head">
-                <span className="assistant-title">Ассистент</span>
+      <div className={`m-composer-wrap ${chatMode ? "chat-active" : ""} ${isFullscreen ? "fullscreen" : ""}`}>
+        {chatMode && (
+          <div className={`m-chat-overlay ${isFullscreen ? "fullscreen" : ""}`}>
+            <div className="m-chat-header">
+              <span className="assistant-title">Ассистент</span>
+              {messages.length > 0 && (
                 <button
                   type="button"
-                  className="assistant-close"
-                  onClick={() => setMobileSheetOpen(false)}
-                  aria-label="Закрыть"
+                  className="assistant-resume-badge"
+                  onClick={makeSummary}
+                  disabled={sending}
                 >
-                  ×
+                  📝 Резюме
                 </button>
-              </div>
-              <div className="assistant-messages" ref={scrollRef}>
-                {messages.length === 0 && (
-                  <div className="assistant-empty-center">
-                    Задайте вопрос ассистенту по текущему слову или грамматике.
-                  </div>
-                )}
-                {messages.map((m) => (
-                  <div key={m.id} className={`assistant-msg assistant-msg-${m.role}`}>
-                    <div
-                      className={`assistant-msg-bubble ${
-                        m.kind === "summary" ? "assistant-msg-summary" : ""
-                      }`}
-                    >
-                      {m.kind === "summary" && (
-                        <div className="assistant-summary-label">📝 Резюме</div>
-                      )}
-                      {m.content}
-                    </div>
+              )}
+              <button
+                type="button"
+                className="assistant-fullscreen-btn"
+                onClick={() => setIsFullscreen(!isFullscreen)}
+                aria-label={isFullscreen ? "Свернуть" : "Развернуть"}
+              >
+                {isFullscreen ? "❐" : "⛶"}
+              </button>
+              <button
+                type="button"
+                className="assistant-close"
+                onClick={() => setChatMode(false)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="assistant-messages" ref={scrollRef}>
+              {messages.length === 0 && (
+                <div className="assistant-empty-center">
+                  Задайте вопрос ассистенту по текущему слову или грамматике.
+                </div>
+              )}
+              {messages.map((m) => (
+                <div key={m.id} className={`assistant-msg assistant-msg-${m.role}`}>
+                  <div
+                    className={`assistant-msg-bubble ${
+                      m.kind === "summary" ? "assistant-msg-summary" : ""
+                    } ${m.kind === "word-summary" ? "assistant-msg-card" : ""}`}
+                  >
                     {m.kind === "summary" && (
-                      <div className="assistant-summary-actions">
-                        <button type="button" onClick={() => openSavePanel(m.id)}>
-                          Сохранить в My Words
+                      <div className="assistant-summary-label">📝 Резюме</div>
+                    )}
+                    {m.content}
+                    {m.role === "user" && (
+                      <button
+                        className="assistant-edit-btn"
+                        onClick={() => editMessage(m.id)}
+                        title="Редактировать"
+                      >
+                        ✏️
+                      </button>
+                    )}
+                    {m.kind === "word-summary" && (
+                      <button 
+                        className={`assistant-card-save-btn ${cardSavedIds.has(m.id) ? "saved" : ""}`}
+                        onClick={() => saveCardToLibrary(m.id, m.content)}
+                        disabled={cardSavedIds.has(m.id)}
+                      >
+                        {cardSavedIds.has(m.id) ? "✓ Сохранено" : "Сохранить карточку"}
+                      </button>
+                    )}
+                  </div>
+                  {m.kind === "summary" && (
+                    <div className="assistant-summary-actions">
+                      <button type="button" onClick={() => openSavePanel(m.id)}>
+                        Сохранить в My Words
+                      </button>
+                    </div>
+                  )}
+                  {m.kind === "summary" && savePanelFor === m.id && (
+                    <div className="assistant-save-panel">
+                      <label className="assistant-check">
+                        <input
+                          type="checkbox"
+                          checked={saveSeparate}
+                          onChange={(e) => setSaveSeparate(e.target.checked)}
+                        />
+                        Сохранить в папку
+                      </label>
+                      {saveSeparate && (
+                        <select
+                          className="assistant-select"
+                          value={folderChoice}
+                          onChange={(e) => setFolderChoice(e.target.value)}
+                        >
+                          {folders.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      <label className="assistant-check">
+                        <input
+                          type="checkbox"
+                          checked={saveAttach}
+                          onChange={(e) => setSaveAttach(e.target.checked)}
+                        />
+                        Прикрепить к слову
+                      </label>
+                      {saveAttach && (
+                        <>
+                          {suggestedWord && (
+                            <button
+                              type="button"
+                              className="assistant-suggest"
+                              onClick={() => {
+                                setWordChoice(suggestedWord.id);
+                                setWordSearch(suggestedWord.word);
+                              }}
+                            >
+                              Текущее: {suggestedWord.word}
+                            </button>
+                          )}
+                          <input
+                            type="text"
+                            className="assistant-input-text"
+                            placeholder="Поиск слова…"
+                            value={wordSearch}
+                            onChange={(e) => setWordSearch(e.target.value)}
+                          />
+                          <ul className="assistant-word-list">
+                            {filteredWords.slice(0, 20).map((w) => (
+                              <li key={w.id}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setWordChoice(w.id);
+                                    setWordSearch(w.word);
+                                  }}
+                                  style={{
+                                    background:
+                                      wordChoice === w.id ? "#e5e7eb" : "transparent",
+                                  }}
+                                >
+                                  {w.word}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                      <div className="assistant-save-actions">
+                        <button
+                          type="button"
+                          className="assistant-save-confirm"
+                          onClick={() => doSave(m.id)}
+                        >
+                          Сохранить
                         </button>
                       </div>
-                    )}
-                    {m.kind === "summary" && savePanelFor === m.id && (
-                      <div className="assistant-save-panel">
-                        <label className="assistant-check">
-                          <input
-                            type="checkbox"
-                            checked={saveSeparate}
-                            onChange={(e) => setSaveSeparate(e.target.checked)}
-                          />
-                          Сохранить в папку
-                        </label>
-                        {saveSeparate && (
-                          <select
-                            className="assistant-select"
-                            value={folderChoice}
-                            onChange={(e) => setFolderChoice(e.target.value)}
-                          >
-                            {folders.map((f) => (
-                              <option key={f.id} value={f.id}>
-                                {f.name}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <label className="assistant-check">
-                          <input
-                            type="checkbox"
-                            checked={saveAttach}
-                            onChange={(e) => setSaveAttach(e.target.checked)}
-                          />
-                          Прикрепить к слову
-                        </label>
-                        {saveAttach && (
-                          <>
-                            {suggestedWord && (
-                              <button
-                                type="button"
-                                className="assistant-suggest"
-                                onClick={() => {
-                                  setWordChoice(suggestedWord.id);
-                                  setWordSearch(suggestedWord.word);
-                                }}
-                              >
-                                Текущее: {suggestedWord.word}
-                              </button>
-                            )}
-                            <input
-                              type="text"
-                              className="assistant-input-text"
-                              placeholder="Поиск слова…"
-                              value={wordSearch}
-                              onChange={(e) => setWordSearch(e.target.value)}
-                            />
-                            <ul className="assistant-word-list">
-                              {filteredWords.slice(0, 20).map((w) => (
-                                <li key={w.id}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setWordChoice(w.id);
-                                      setWordSearch(w.word);
-                                    }}
-                                    style={{
-                                      background:
-                                        wordChoice === w.id ? "#e5e7eb" : "transparent",
-                                    }}
-                                  >
-                                    {w.word}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          </>
-                        )}
-                        <div className="assistant-save-actions">
-                          <button
-                            type="button"
-                            className="assistant-save-confirm"
-                            onClick={() => doSave(m.id)}
-                          >
-                            Сохранить
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-                {sending && (
-                  <div className="assistant-msg assistant-msg-assistant">
-                    <div className="assistant-msg-bubble assistant-typing">
-                      <span></span><span></span><span></span>
                     </div>
+                  )}
+                </div>
+              ))}
+              {sending && (
+                <div className="assistant-msg assistant-msg-assistant">
+                  <div className="assistant-msg-bubble assistant-typing">
+                    <span></span><span></span><span></span>
                   </div>
-                )}
-                {savedToast && <div className="assistant-toast">{savedToast}</div>}
-              </div>
-              <div className="assistant-resume-bar">
-                <button
-                  type="button"
-                  className="assistant-resume-btn"
-                  onClick={makeSummary}
-                  disabled={sending || messages.length === 0}
-                >
-                  📝 Сделать резюме
-                </button>
-              </div>
-              <form
-                className="assistant-input"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  send();
-                }}
-              >
-                <textarea
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  placeholder="Спросите ассистента…"
-                  rows={2}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      send();
-                    }
-                  }}
-                />
-                <button type="submit" disabled={sending || !draft.trim()}>
-                  ➤
-                </button>
-              </form>
+                </div>
+              )}
+              {savedToast && <div className="assistant-toast">{savedToast}</div>}
             </div>
           </div>
         )}
-      </>
+
+
+          <form 
+            className="m-composer" 
+            onSubmit={(e) => { 
+              e.preventDefault(); 
+              if (editingMessageId) submitMessageEdit();
+              else if (chatMode) send(); 
+              else submitMobileBreakdown();
+            }}
+          >
+            <button
+              type="button"
+              className={`m-composer-chat ${chatMode ? "active" : ""}`}
+              onClick={() => {
+                setChatMode(!chatMode);
+                setEditingMessageId(null);
+                setDraft("");
+              }}
+              aria-label={chatMode ? "Закрыть чат" : "Открыть чат"}
+            >
+              {chatMode ? "✕" : "💬"}
+            </button>
+            <div className="m-composer-input-area">
+              <input
+                type="text"
+                className="m-composer-input"
+                placeholder={
+                  editingMessageId 
+                    ? "Редактировать сообщение…" 
+                    : (chatMode ? "Спросите ассистента…" : "Разбери слово или фразу...")
+                }
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {editingMessageId && (
+                <button
+                  type="button"
+                  className="m-composer-cancel"
+                  onClick={() => {
+                    setEditingMessageId(null);
+                    setDraft("");
+                  }}
+                >
+                  Отмена
+                </button>
+              )}
+            </div>
+            {(chatMode || editingMessageId) && (
+              <button 
+                type="submit" 
+                className="m-composer-send" 
+                disabled={sending || !draft.trim()}
+              >
+                ➤
+              </button>
+            )}
+          </form>
+      </div>
     );
   }
 
@@ -557,10 +648,28 @@ export function AssistantSidebar() {
   }
 
   return (
-    <aside className="assistant-sidebar">
+    <aside className={`assistant-sidebar ${isFullscreen ? "fullscreen" : ""}`}>
       <header className="assistant-head">
         <div className="assistant-head-left">
           <span className="assistant-title">Ассистент</span>
+          {messages.length > 0 && (
+            <button
+              type="button"
+              className="assistant-resume-badge"
+              onClick={makeSummary}
+              disabled={sending}
+            >
+              📝 Резюме
+            </button>
+          )}
+          <button
+            type="button"
+            className="assistant-fullscreen-btn"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            aria-label={isFullscreen ? "Свернуть" : "Развернуть"}
+          >
+            {isFullscreen ? "❐" : "⛶"}
+          </button>
           <button
             type="button"
             className="assistant-info-btn"
@@ -600,12 +709,30 @@ export function AssistantSidebar() {
             <div
               className={`assistant-msg-bubble ${
                 m.kind === "summary" ? "assistant-msg-summary" : ""
-              }`}
+              } ${m.kind === "word-summary" ? "assistant-msg-card" : ""}`}
             >
               {m.kind === "summary" && (
                 <div className="assistant-summary-label">📝 Резюме</div>
               )}
               {m.content}
+              {m.role === "user" && (
+                <button
+                  className="assistant-edit-btn"
+                  onClick={() => editMessage(m.id)}
+                  title="Редактировать"
+                >
+                  ✏️
+                </button>
+              )}
+              {m.kind === "word-summary" && (
+                <button 
+                  className={`assistant-card-save-btn ${cardSavedIds.has(m.id) ? "saved" : ""}`}
+                  onClick={() => saveCardToLibrary(m.id, m.content)}
+                  disabled={cardSavedIds.has(m.id)}
+                >
+                  {cardSavedIds.has(m.id) ? "✓ Сохранено" : "Сохранить карточку"}
+                </button>
+              )}
             </div>
             {m.kind === "summary" && (
               <div className="assistant-summary-actions">
@@ -738,40 +865,50 @@ export function AssistantSidebar() {
         {savedToast && <div className="assistant-toast">{savedToast}</div>}
       </div>
 
-      <div className="assistant-resume-bar">
-        <button
-          type="button"
-          className="assistant-resume-btn"
-          onClick={makeSummary}
-          disabled={sending || messages.length === 0}
-        >
-          📝 Сделать резюме
-        </button>
-      </div>
 
       <form
         className="assistant-input"
         onSubmit={(e) => {
           e.preventDefault();
-          if (editingSummaryId) refineSummary(editingSummaryId);
+          if (editingMessageId) submitMessageEdit();
+          else if (editingSummaryId) refineSummary(editingSummaryId);
           else send();
         }}
       >
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={
-            editingSummaryId ? "Опишите правки к резюме…" : "Спросите ассистента…"
-          }
-          rows={2}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (editingSummaryId) refineSummary(editingSummaryId);
-              else send();
+        <div className="assistant-input-area">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={
+              editingMessageId
+                ? "Редактировать сообщение…"
+                : editingSummaryId
+                  ? "Опишите правки к резюме…"
+                  : "Спросите ассистента…"
             }
-          }}
-        />
+            rows={2}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (editingMessageId) submitMessageEdit();
+                else if (editingSummaryId) refineSummary(editingSummaryId);
+                else send();
+              }
+            }}
+          />
+          {editingMessageId && (
+            <button
+              type="button"
+              className="assistant-input-cancel"
+              onClick={() => {
+                setEditingMessageId(null);
+                setDraft("");
+              }}
+            >
+              Отмена
+            </button>
+          )}
+        </div>
         <button type="submit" disabled={sending || !draft.trim()}>
           ➤
         </button>

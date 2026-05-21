@@ -33,3 +33,8 @@ dist-ssr
 
 # Environment Variables
 .env
+
+# Temporary files and scratch scripts
+/scratch/
+/test.html
+/patch_index*.cjs
