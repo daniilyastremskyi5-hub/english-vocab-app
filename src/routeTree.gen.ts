@@ -10,17 +10,11 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiChatAssistantRouteImport } from './routes/api/chat-assistant'
 import { Route as ApiAiBreakdownRouteImport } from './routes/api/ai-breakdown'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiChatAssistantRoute = ApiChatAssistantRouteImport.update({
-  id: '/api/chat-assistant',
-  path: '/api/chat-assistant',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAiBreakdownRoute = ApiAiBreakdownRouteImport.update({
@@ -32,31 +26,27 @@ const ApiAiBreakdownRoute = ApiAiBreakdownRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/ai-breakdown': typeof ApiAiBreakdownRoute
-  '/api/chat-assistant': typeof ApiChatAssistantRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/ai-breakdown': typeof ApiAiBreakdownRoute
-  '/api/chat-assistant': typeof ApiChatAssistantRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/ai-breakdown': typeof ApiAiBreakdownRoute
-  '/api/chat-assistant': typeof ApiChatAssistantRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/ai-breakdown' | '/api/chat-assistant'
+  fullPaths: '/' | '/api/ai-breakdown'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/ai-breakdown' | '/api/chat-assistant'
-  id: '__root__' | '/' | '/api/ai-breakdown' | '/api/chat-assistant'
+  to: '/' | '/api/ai-breakdown'
+  id: '__root__' | '/' | '/api/ai-breakdown'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiAiBreakdownRoute: typeof ApiAiBreakdownRoute
-  ApiChatAssistantRoute: typeof ApiChatAssistantRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -66,13 +56,6 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/chat-assistant': {
-      id: '/api/chat-assistant'
-      path: '/api/chat-assistant'
-      fullPath: '/api/chat-assistant'
-      preLoaderRoute: typeof ApiChatAssistantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/ai-breakdown': {
@@ -88,7 +71,6 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiAiBreakdownRoute: ApiAiBreakdownRoute,
-  ApiChatAssistantRoute: ApiChatAssistantRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
@@ -14,21 +14,23 @@ import { AssistantSidebar } from "@/components/AssistantSidebar";
 
 function NotFoundComponent() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="mt-6">
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Go home
-          </Link>
-        </div>
+    <div style={{ display: "flex", minHeight: "100vh", alignItems: "center", justifyContent: "center", padding: "0 24px" }}>
+      <div style={{ maxWidth: 400, textAlign: "center", fontFamily: "Manrope, sans-serif" }}>
+        <h1 style={{ fontSize: 64, fontWeight: 200, color: "#3059b9", margin: "0 0 16px", letterSpacing: "-0.04em" }}>404</h1>
+        <p style={{ fontSize: 18, color: "#434652", margin: "0 0 24px", fontWeight: 400 }}>Страница не найдена</p>
+        <Link
+          to="/"
+          style={{
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            padding: "12px 28px", borderRadius: 9999,
+            background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)",
+            border: "1px solid rgba(255,255,255,0.6)", color: "#3059b9",
+            fontFamily: "Manrope, sans-serif", fontWeight: 600, fontSize: 14,
+            textDecoration: "none", letterSpacing: "0.05em",
+          }}
+        >
+          На главную
+        </Link>
       </div>
     </div>
   );
@@ -39,29 +41,38 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-md text-center">
-        <h1 className="text-xl font-semibold tracking-tight text-foreground">
-          This page didn't load
+    <div style={{ display: "flex", minHeight: "100vh", alignItems: "center", justifyContent: "center", padding: "0 24px" }}>
+      <div style={{ maxWidth: 400, textAlign: "center", fontFamily: "Manrope, sans-serif" }}>
+        <h1 style={{ fontSize: 24, fontWeight: 400, color: "#181c20", margin: "0 0 12px" }}>
+          Что-то пошло не так
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Something went wrong on our end. You can try refreshing or head back home.
+        <p style={{ fontSize: 15, color: "#434652", margin: "0 0 24px" }}>
+          Попробуйте перезагрузить страницу или вернуться на главную.
         </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
           <button
-            onClick={() => {
-              router.invalidate();
-              reset();
+            onClick={() => { router.invalidate(); reset(); }}
+            style={{
+              padding: "12px 24px", borderRadius: 9999,
+              background: "rgba(255,255,255,0.6)", backdropFilter: "blur(12px)",
+              border: "1px solid rgba(255,255,255,0.6)", color: "#3059b9",
+              fontFamily: "Manrope, sans-serif", fontWeight: 600, fontSize: 14,
+              cursor: "pointer",
             }}
-            className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            Try again
+            Попробовать снова
           </button>
           <a
             href="/"
-            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            style={{
+              padding: "12px 24px", borderRadius: 9999,
+              background: "transparent",
+              border: "1px solid rgba(255,255,255,0.5)", color: "#434652",
+              fontFamily: "Manrope, sans-serif", fontWeight: 500, fontSize: 14,
+              textDecoration: "none", display: "inline-flex", alignItems: "center",
+            }}
           >
-            Go home
+            На главную
           </a>
         </div>
       </div>
@@ -74,23 +85,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lev&Nikol" },
-      { name: "description", content: "English word breakdowns" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lev&Nikol" },
-      { property: "og:description", content: "English word breakdowns" },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
-      { name: "twitter:title", content: "Lev&Nikol" },
-      { name: "twitter:description", content: "English word breakdowns" },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/a999847d-d993-42e1-b49a-b948e4067bf9/id-preview-dcc83fa7--8af3364b-b558-4730-8872-932ad7b41a4f.lovable.app-1778326611756.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/a999847d-d993-42e1-b49a-b948e4067bf9/id-preview-dcc83fa7--8af3364b-b558-4730-8872-932ad7b41a4f.lovable.app-1778326611756.png" },
+      { title: "Lev & Nikol" },
+      { name: "description", content: "Разбор английских слов и фраз" },
     ],
     links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: appCss,
+        href: "https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;500;700&display=swap",
+      },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap",
       },
     ],
   }),
@@ -100,64 +108,39 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   errorComponent: ErrorComponent,
 });
 
-function BackgroundVideo() {
-  const [activeVideo, setActiveVideo] = useState<1 | 2>(1);
-  const video1Ref = useRef<HTMLVideoElement>(null);
-  const video2Ref = useRef<HTMLVideoElement>(null);
+/** Atmospheric orb background with mouse parallax */
+function AtmosphericBackground() {
+  const orb1Ref = useRef<HTMLDivElement>(null);
+  const orb2Ref = useRef<HTMLDivElement>(null);
 
-  const handleTimeUpdate = (e: React.SyntheticEvent<HTMLVideoElement>, videoId: 1 | 2) => {
-    const video = e.currentTarget;
-    const timeLeft = video.duration - video.currentTime;
-    
-    // Crossfade 1.5 seconds before the video ends
-    if (timeLeft <= 1.5 && activeVideo === videoId) {
-      const nextVideoId = videoId === 1 ? 2 : 1;
-      const nextVideo = nextVideoId === 1 ? video1Ref.current : video2Ref.current;
-      
-      if (nextVideo) {
-        nextVideo.currentTime = 0;
-        nextVideo.play().catch(console.error);
-        setActiveVideo(nextVideoId);
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const x = (e.clientX / window.innerWidth) * 30;
+      const y = (e.clientY / window.innerHeight) * 30;
+
+      if (orb1Ref.current) {
+        orb1Ref.current.style.transform = `translate(${x * 0.4}px, ${y * 0.4}px)`;
       }
-    }
-  };
+      if (orb2Ref.current) {
+        orb2Ref.current.style.transform = `translate(${x * 0.8}px, ${y * 0.8}px)`;
+      }
+    };
 
-  const baseStyle: React.CSSProperties = {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "cover",
-    transition: "opacity 1.5s ease-in-out"
-  };
+    document.addEventListener("mousemove", handleMouseMove);
+    return () => document.removeEventListener("mousemove", handleMouseMove);
+  }, []);
 
   return (
     <>
-      <video
-        ref={video1Ref}
-        src="/mp_.mp4"
-        autoPlay
-        muted
-        playsInline
-        onTimeUpdate={(e) => handleTimeUpdate(e, 1)}
-        style={{
-          ...baseStyle,
-          zIndex: -2,
-          opacity: activeVideo === 1 ? 1 : 0,
-        }}
+      <div
+        ref={orb1Ref}
+        className="ln-orb"
+        style={{ top: -150, left: -150 }}
       />
-      <video
-        ref={video2Ref}
-        src="/mp_.mp4"
-        muted
-        playsInline
-        onTimeUpdate={(e) => handleTimeUpdate(e, 2)}
-        style={{
-          ...baseStyle,
-          zIndex: -1,
-          opacity: activeVideo === 2 ? 1 : 0,
-        }}
+      <div
+        ref={orb2Ref}
+        className="ln-orb"
+        style={{ bottom: -250, right: -150 }}
       />
     </>
   );
@@ -165,7 +148,7 @@ function BackgroundVideo() {
 
 function RootShell({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <head>
         <HeadContent />
       </head>
@@ -182,7 +165,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <BackgroundVideo />
+      <AtmosphericBackground />
       <div className="app-with-assistant">
         <Outlet />
       </div>

@@ -15,12 +15,6 @@ export const Route = createFileRoute("/")({
           "Lev & Nikol — мгновенный разбор английских слов и фраз: значения, коллокации, грамматика, синонимы.",
       },
     ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:ital,wght@0,500;0,600;0,700;1,500;1,600&family=JetBrains+Mono:wght@400;500&display=swap",
-      },
-    ],
   }),
   component: Index,
 });
@@ -227,7 +221,7 @@ function Index() {
 
     function renderSoundButton(text?: string) {
       if (!text) return "";
-      return `<button class="sound-btn" data-text="${escapeHtml(text)}" title="Listen" aria-label="Listen">🔊</button>`;
+      return `<button class="sound-btn" data-text="${escapeHtml(text)}" title="Listen" aria-label="Listen"><span class="material-symbols-outlined" style="font-size:18px;line-height:1;">volume_up</span></button>`;
     }
 
     function getCardWidgetState(word: string, widgetTitle: string, defaultState: boolean): boolean {
@@ -284,7 +278,7 @@ function Index() {
 
     function renderStage1(obj: any) {
       let html = "";
-      if (obj.word) html += `<div class="word-chip-wrap fade-up"><span class="word-chip">${escapeHtml(obj.word)}</span>${renderSoundButton(obj.word)}</div>`;
+      if (obj.word) html += `<div class="word-chip-wrap fade-up"><span class="word-chip glass-card">${escapeHtml(obj.word)}</span>${renderSoundButton(obj.word)}</div>`;
       if (obj.level || obj.frequency) {
         html += `<div class="badges fade-up" style="animation-delay:.05s">`;
         if (obj.level) html += `<span class="badge cefr">${escapeHtml(obj.level)}</span>`;
@@ -412,7 +406,7 @@ function Index() {
     function widgetHtml(icon: string, title: string, content: string, isOpen: boolean, delay: number, isLoading?: boolean) {
       const spinner = isLoading ? '<span class="mt-spin" style="margin-left:8px; width:14px; height:14px; display:inline-block;" aria-hidden="true"></span>' : '';
       return `
-        <div class="widget ${isOpen ? "open" : ""}" style="animation-delay:${delay}ms">
+        <div class="widget glass-card ${isOpen ? "open" : ""}" style="animation-delay:${delay}ms">
           <div class="widget-head" data-toggle>
             <span class="widget-icon">${icon}</span>
             <span class="widget-title" style="display:flex;align-items:center;">${title}${spinner}</span>
@@ -596,7 +590,7 @@ function Index() {
 
     function renderFullSkeletonOpen(idx: number = 0) {
       return `
-        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton" style="animation: none; opacity: 1;">
+        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton glass-card" style="animation: none; opacity: 1;">
           <div class="full-skel-open">
             <div class="skel-head">
               <div class="skel-icon"></div>
@@ -616,7 +610,7 @@ function Index() {
       const widths = [33, 45, 27, 40, 52, 36];
       const w = widths[idx % widths.length];
       return `
-        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton" style="animation: none; opacity: 1;">
+        <div data-skeleton="${idx}" class="skeleton-widget wave-skeleton glass-card" style="animation: none; opacity: 1;">
           <div class="full-skel-closed">
             <div class="skel-head">
               <div class="skel-icon"></div>
@@ -948,7 +942,96 @@ function Index() {
       return "";
     }
 
-    function renderUnifiedBreakdown(obj: any): string {
+    function getTranslationFromBreakdown(b: any): string {
+      if (!b) return "";
+      const light = b._light || null;
+      const full = b.breakdown || null;
+      
+      function cleanTranslation(str: string): string {
+        if (!str) return "";
+        let res = str.trim();
+        if (res.includes(" — ")) {
+          const parts = res.split(" — ");
+          if (parts[1]) res = parts[1];
+        } else if (res.includes(" - ")) {
+          const parts = res.split(" - ");
+          if (parts[1]) res = parts[1];
+        }
+        res = res.replace(/[\*\`\_]/g, "").trim();
+        return res;
+      }
+
+      let translation = "";
+      if (b.translation) {
+        translation = typeof b.translation === "object" ? b.translation.main : b.translation;
+      }
+      if (!translation && light && light.translation) {
+        translation = typeof light.translation === "object" ? light.translation.main : light.translation;
+      }
+      if (!translation && full && full.translation) {
+        translation = typeof full.translation === "object" ? full.translation.main : full.translation;
+      }
+      if (!translation && light && light.wave1 && light.wave1.content) {
+        const firstLine = light.wave1.content.split("\n")[0] || "";
+        translation = cleanTranslation(firstLine);
+      }
+      if (!translation && full && Array.isArray(full.contexts) && full.contexts.length) {
+        const firstCtx = full.contexts[0] || {};
+        const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+        translation = firstCtx.title || firstEx.ru || "";
+      }
+      if (!translation && Array.isArray(b.contexts) && b.contexts.length) {
+        const firstCtx = b.contexts[0] || {};
+        const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+        translation = firstCtx.title || firstEx.ru || "";
+      }
+      if (!translation && b.summary) {
+        translation = b.summary;
+      }
+      if (!translation && full && full.summary) {
+        translation = full.summary;
+      }
+      return String(translation || "").trim();
+    }
+
+    function getPosFromBreakdown(b: any): string {
+      if (!b) return "";
+      const light = b._light || null;
+      const full = b.breakdown || null;
+      if (b.pos) return b.pos;
+      if (light && light.pos) return light.pos;
+      if (full && full.pos) return full.pos;
+      return "";
+    }
+
+    function wrapHtmlInWordCard(innerHtml: string, b: any, word: string, isLoading: boolean = false): string {
+      const translation = getTranslationFromBreakdown(b);
+      const pos = getPosFromBreakdown(b);
+      const currentLang = store.lang || "ru";
+      
+      return `
+        <div class="word-card glass-card open fade-up ${isLoading ? "wc-loading" : ""}" style="cursor: default; width: 100%;">
+          ${isLoading ? "" : `
+          <div class="wc-head">
+            <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+              <div class="wc-word">${escapeHtml(word)}</div>
+              <button class="sound-btn" data-text="${escapeHtml(word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+              </button>
+            </div>
+            ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
+          </div>
+          `}
+          <div class="wc-detail" style="${isLoading ? "margin-top: 0;" : ""}">
+            <div class="wc-detail-inner" style="${isLoading ? "border-top: none; margin-top: 0; padding-top: 0;" : ""}">
+              ${innerHtml}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderUnifiedBreakdown(obj: any, wrapInCard: boolean = false): string {
       if (!obj) return "";
       if (obj.mode === "context") {
         return renderContext(obj);
@@ -960,6 +1043,7 @@ function Index() {
         return renderRuMap(obj);
       }
       
+      let innerHtml = "";
       // If we have unified structure
       if (obj._light) {
         // Render light overview layer
@@ -975,11 +1059,18 @@ function Index() {
         } else {
           fullHtml = `<div class="full-continuation-container"></div>`;
         }
-        return lightHtml + fullHtml;
+        innerHtml = lightHtml + fullHtml;
+      } else {
+        // Default/Legacy Full word breakdown format
+        innerHtml = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
       }
 
-      // Default/Legacy Full word breakdown format
-      return `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
+      if (wrapInCard && obj.mode !== "sentence" && obj.mode !== "context" && obj.mode !== "ru-map") {
+        const word = getWordFromBreakdown(obj) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+        return wrapHtmlInWordCard(innerHtml, obj, word);
+      }
+      
+      return innerHtml;
     }
 
     function renderLightSkeleton(): string {
@@ -1150,19 +1241,19 @@ function Index() {
           const isDeepDiveReady = isStreaming ? (isFinished || !!data.deep_dive) : true;
           if (isDeepDiveReady && data.deep_dive) {
             const recommendedBadgeHtml = data.deep_dive.recommended
-              ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);">🔥 Стоит открыть</span>`
-              : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1);">💡 Обзора достаточно</span>`;
+              ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(var(--ll-primary-rgb, 48, 89, 185), 0.08); color: var(--ll-primary); border: 1px solid rgba(var(--ll-primary-rgb, 48, 89, 185), 0.18); backdrop-filter: blur(8px);">Стоит открыть</span>`
+              : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(8px);">Обзора достаточно</span>`;
 
             let btnHtml = "";
             if (isFullLoaded) {
               btnHtml = `
-                <button class="btn-go deep-dive-btn success" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s; background: rgba(16, 185, 129, 0.15) !important; color: #10b981 !important; border: 1px solid rgba(16, 185, 129, 0.3) !important; cursor: default;" disabled>
+                <button class="btn-go deep-dive-btn success" style="width: 100%; justify-content: center; height: 42px; font-size: 14px; font-weight: 500; transition: all 0.2s; background: rgba(16, 185, 129, 0.08) !important; color: #10b981 !important; border: 1px solid rgba(16, 185, 129, 0.2) !important; backdrop-filter: blur(10px); border-radius: 10px; cursor: default;" disabled>
                   ✓ Разбор открыт
                 </button>
               `;
             } else {
               btnHtml = `
-                <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s;" data-canonical="${escapeHtml(data.canonical || "")}">
+                <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 42px; font-size: 14px; font-weight: 500; transition: all 0.2s; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px); border-radius: 10px; color: var(--text);" data-canonical="${escapeHtml(data.canonical || "")}">
                   ${escapeHtml(data.deep_dive.label || "Разобрать подробнее")}
                 </button>
               `;
@@ -1171,12 +1262,11 @@ function Index() {
             html += `
               <div class="deep-dive-card fade-up glass-card" style="margin-top: 28px; padding: 24px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 16px;">
                 <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                  <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Раздел</div>
+                  <div class="deep-dive-title" style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">Глубокий разбор</div>
                   ${recommendedBadgeHtml}
                 </div>
                 <div>
-                  <div class="deep-dive-title" style="font-size: 20px; font-weight: 800; color: var(--text); font-family: inherit;">Глубокий разбор</div>
-                  <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5; margin-top: 8px;">
+                  <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5;">
                     ${escapeHtml(data.deep_dive.hint || "")}
                   </div>
                 </div>
@@ -1234,11 +1324,20 @@ function Index() {
       return "";
     }
 
-    function renderLightContent(lightData: any, isStreaming: boolean = false): string {
+    function renderLightContent(lightData: any, isStreaming: boolean = false, wrapInCard: boolean = false): string {
       const hasLight = isStreaming || (lightData && (typeof lightData === "string" ? lightData.trim() : true));
-      return hasLight
+      const innerHtml = hasLight
         ? renderLight(lightData, isStreaming)
         : `<div class="light-block" style="color:var(--text-muted);">…</div>`;
+        
+      if (wrapInCard) {
+        const word = (lightData && typeof lightData === "object" ? (lightData.canonical || lightData.word) : "") 
+                     || (document.getElementById("input") as HTMLInputElement | null)?.value 
+                     || "";
+        const isLoading = !lightData || typeof lightData !== "object" || (!lightData.canonical && !lightData.word);
+        return wrapHtmlInWordCard(innerHtml, { _light: lightData }, word, isLoading);
+      }
+      return innerHtml;
     }
 
 
@@ -1273,8 +1372,9 @@ function Index() {
         });
       });
     }
-    function attachChips() {
-      results!.querySelectorAll(".chip").forEach((c) => {
+    function attachChips(container: HTMLElement = results!) {
+      if (!container) return;
+      container.querySelectorAll(".chip").forEach((c) => {
         const el = c as HTMLButtonElement & { __bound?: boolean };
         if (el.__bound) return;
         el.__bound = true;
@@ -1282,6 +1382,7 @@ function Index() {
           const canonical = el.getAttribute("data-canonical") || "";
           if (canonical) {
             // Wave 3 recommendation chip — go to standard search run() first!
+            switchPage("breakdown");
             results!.classList.add("fade-out");
             setTimeout(() => {
               input!.value = canonical;
@@ -1292,6 +1393,7 @@ function Index() {
           }
           const w = el.getAttribute("data-word") || "";
           if (w) {
+            switchPage("breakdown");
             results!.classList.add("fade-out");
             setTimeout(() => {
               input!.value = w;
@@ -1302,13 +1404,14 @@ function Index() {
         });
       });
 
-      results!.querySelectorAll(".recommendation-card").forEach((c) => {
+      container.querySelectorAll(".recommendation-card").forEach((c) => {
         const el = c as HTMLElement & { __bound?: boolean };
         if (el.__bound) return;
         el.__bound = true;
         el.addEventListener("click", () => {
           const canonical = el.getAttribute("data-canonical") || "";
           if (canonical) {
+            switchPage("breakdown");
             results!.classList.add("fade-out");
             setTimeout(() => {
               input!.value = canonical;
@@ -1552,14 +1655,14 @@ function Index() {
           folder_id: w.folder_id || "__all__",
           word: w.word,
           created_at: w.at || new Date().toISOString(),
-          breakdown: w.breakdown,
+          breakdown: safeParseBreakdown(w.breakdown),
         }));
         historyList = (store.history || []).map((h: any, i: number) => ({
           id: "local-h-" + i,
           word: h.word,
           translation: h.translation || "",
           mode: h.mode || "word",
-          breakdown: h.breakdown || null,
+          breakdown: h.breakdown ? safeParseBreakdown(h.breakdown) : null,
           updated_at: h.at || new Date().toISOString(),
         }));
         return;
@@ -1682,6 +1785,10 @@ function Index() {
         if (k) (el as HTMLElement).textContent = t(k);
       });
       if (input) input.placeholder = t("search.placeholder");
+      const searchInp = document.getElementById("appBarSearchInput") as HTMLInputElement | null;
+      if (searchInp) {
+        searchInp.placeholder = currentLang === "en" ? "Search..." : "Поиск...";
+      }
       if (goBtn) goBtn.textContent = t("search.btn");
       const loadingSpan = document.querySelector("#loading > span:first-child");
       if (loadingSpan) (loadingSpan as HTMLElement).textContent = t("search.analyzing");
@@ -1762,6 +1869,7 @@ function Index() {
       if (!iso) return "";
       try {
         const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
         const months = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
         const hh = String(d.getHours()).padStart(2, "0");
         const mm = String(d.getMinutes()).padStart(2, "0");
@@ -1807,7 +1915,27 @@ function Index() {
           </div>`;
       }
 
-      const filtered = historyList.filter((h) => inDateRange(h.updated_at, histFilterFrom, histFilterTo));
+      let filtered = historyList.filter((h) => inDateRange(h.updated_at, histFilterFrom, histFilterTo));
+      if (historySearchQuery.trim()) {
+        const q = historySearchQuery.toLowerCase().trim();
+        filtered = filtered.filter((h) => {
+          const wordMatch = h.word && h.word.toLowerCase().includes(q);
+          let translation = h.translation || "";
+          if (h.breakdown && !translation) {
+            const b = h.breakdown as any;
+            const bTrans = b.translation;
+            if (bTrans) {
+              if (typeof bTrans === "object") {
+                translation = bTrans.main || "";
+              } else {
+                translation = String(bTrans);
+              }
+            }
+          }
+          const transMatch = String(translation).toLowerCase().includes(q);
+          return wordMatch || transMatch;
+        });
+      }
       const hasHistFilter = !!(histFilterFrom || histFilterTo);
       const attachHistFilter = () => {
         // Mobile round button toggle (in the page header)
@@ -1849,32 +1977,163 @@ function Index() {
 
       if (!filtered.length) {
         const noPeriod = currentLang === "en" ? "No words in this period" : "Нет слов за этот период";
+        const noResults = currentLang === "en" ? "No results found" : "Ничего не найдено";
+        const title = historySearchQuery.trim() ? noResults : noPeriod;
         el.innerHTML = `
           <div class="empty-state" style="background:var(--bg-elev);border:1px solid var(--border);border-radius:14px;">
-            <div class="empty-title">${escapeHtml(noPeriod)}</div>
+            <div class="empty-title">${escapeHtml(title)}</div>
           </div>`;
         attachHistFilter();
         return;
       }
-      el.innerHTML = `<div class="lib-words">${filtered
-        .map((h) => {
-          return `
-            <div class="word-card" data-hid="${escapeHtml(h.id)}">
-              <div class="wc-head">
-                <button class="wc-trash" data-htrash="${escapeHtml(h.id)}" title="Удалить из истории">✕</button>
-                <button class="wc-chevron" data-chevron aria-label="Toggle">
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 6 8 10 12 6"></polyline></svg>
-                </button>
-                <div class="wc-word">${escapeHtml(h.word)}</div>
-                ${h.translation ? `<div class="wc-translation">${escapeHtml(h.translation)}</div>` : ""}
-                <div class="wc-meta">
-                  <span class="wc-date">${escapeHtml(fmtDateTime(h.updated_at))}</span>
+
+      function fmtGroupDate(iso: string) {
+        if (!iso) return "";
+        try {
+          const d = new Date(iso);
+          if (isNaN(d.getTime())) return iso;
+          if (currentLang === "en") {
+            const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            return months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear();
+          } else {
+            const months = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+            return d.getDate() + " " + months[d.getMonth()] + " " + d.getFullYear();
+          }
+        } catch {
+          return iso;
+        }
+      }
+
+      function getGroupHeader(isoString: string): string {
+        if (!isoString) return currentLang === "en" ? "Unknown Date" : "Неизвестная дата";
+        const d = new Date(isoString);
+        if (isNaN(d.getTime())) return isoString;
+        const now = new Date();
+        const dStr = d.toDateString();
+        const nowStr = now.toDateString();
+        
+        const yesterday = new Date();
+        yesterday.setDate(now.getDate() - 1);
+        const yestStr = yesterday.toDateString();
+        
+        if (dStr === nowStr) {
+          return currentLang === "en" ? "Today" : "Сегодня";
+        } else if (dStr === yestStr) {
+          return currentLang === "en" ? "Yesterday" : "Вчера";
+        } else {
+          return fmtGroupDate(isoString);
+        }
+      }
+
+      function cleanTranslation(str: string): string {
+        if (!str) return "";
+        let res = str.trim();
+        if (res.includes(" — ")) {
+          const parts = res.split(" — ");
+          if (parts[1]) res = parts[1];
+        } else if (res.includes(" - ")) {
+          const parts = res.split(" - ");
+          if (parts[1]) res = parts[1];
+        }
+        res = res.replace(/[\*\`\_]/g, "").trim();
+        return res;
+      }
+
+      const groups: { header: string; items: typeof filtered }[] = [];
+      filtered.forEach((h) => {
+        const header = getGroupHeader(h.updated_at);
+        let group = groups.find((g) => g.header === header);
+        if (!group) {
+          group = { header, items: [] };
+          groups.push(group);
+        }
+        group.items.push(h);
+      });
+
+      el.innerHTML = groups
+        .map((group) => {
+          const itemsHtml = group.items.map((h) => {
+            const b = h.breakdown || {};
+            const light = b._light || null;
+            const full = b.breakdown || null;
+
+            let translation = h.translation || "";
+            if (!translation && b.translation) {
+              translation = typeof b.translation === "object" ? b.translation.main : b.translation;
+            }
+            if (!translation && light && light.translation) {
+              translation = typeof light.translation === "object" ? light.translation.main : light.translation;
+            }
+            if (!translation && full && full.translation) {
+              translation = typeof full.translation === "object" ? full.translation.main : full.translation;
+            }
+            if (!translation && light && light.wave1 && light.wave1.content) {
+              const firstLine = light.wave1.content.split("\n")[0] || "";
+              translation = cleanTranslation(firstLine);
+            }
+            if (!translation && full && Array.isArray(full.contexts) && full.contexts.length) {
+              const firstCtx = full.contexts[0] || {};
+              const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+              translation = firstCtx.title || firstEx.ru || "";
+            }
+            if (!translation && Array.isArray(b.contexts) && b.contexts.length) {
+              const firstCtx = b.contexts[0] || {};
+              const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+              translation = firstCtx.title || firstEx.ru || "";
+            }
+            if (!translation && b.summary) {
+              translation = b.summary;
+            }
+            if (!translation && full && full.summary) {
+              translation = full.summary;
+            }
+            translation = String(translation || "").trim();
+
+            let pos = "";
+            if (b.pos) {
+              pos = b.pos;
+            } else if (light && light.pos) {
+              pos = light.pos;
+            } else if (full && full.pos) {
+              pos = full.pos;
+            }
+
+            return `
+              <div class="word-card glass-card" data-hid="${escapeHtml(h.id)}">
+                <div class="wc-head">
+                  <button class="wc-trash" data-htrash="${escapeHtml(h.id)}" title="Удалить из истории"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
+                  <button class="wc-chevron" data-chevron aria-label="Toggle">
+                    <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span>
+                  </button>
+                  <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+                    <div class="wc-word">${escapeHtml(h.word)}</div>
+                    <button class="sound-btn" data-text="${escapeHtml(h.word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                      <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+                    </button>
+                  </div>
+                  ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
+                  <div class="wc-meta">
+                    <span class="wc-date">${escapeHtml(fmtDateTime(h.updated_at))}</span>
+                  </div>
                 </div>
+                <div class="wc-detail"><div class="wc-detail-inner"></div></div>
+              </div>`;
+          }).join("");
+
+          return `
+            <div class="history-group" style="margin-bottom: 24px;">
+              <div class="history-group-header" style="font-size: 11px; font-weight: 700; color: var(--ll-outline); margin: 24px 0 12px 4px; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; gap: 8px; user-select: none;">
+                <span class="material-symbols-outlined" style="font-size: 16px;">calendar_today</span>
+                <span>${escapeHtml(group.header)}</span>
               </div>
-              <div class="wc-detail"><div class="wc-detail-inner"></div></div>
-            </div>`;
+              <div class="lib-words">
+                ${itemsHtml}
+              </div>
+            </div>
+          `;
         })
-        .join("")}</div>`;
+        .join("");
+
       attachHistFilter();
 
       el.querySelectorAll("[data-htrash]").forEach((b) => {
@@ -1889,7 +2148,19 @@ function Index() {
         c.addEventListener("click", (e) => {
           const tgt = e.target as HTMLElement;
           if (tgt.closest(".wc-trash")) return;
+          if (tgt.closest(".sound-btn")) return;
           if (tgt.closest(".wc-detail")) return;
+
+          const sBar = document.getElementById("appBarSearch");
+          if (sBar && sBar.classList.contains("expanded")) {
+            const id = c.getAttribute("data-hid");
+            if (id) {
+              cardIdToOpenAfterRender = id;
+            }
+            collapseSearchBar();
+            return;
+          }
+
           const id = c.getAttribute("data-hid") || "";
           const isOpen = c.classList.contains("open");
           el.querySelectorAll(".word-card.open").forEach((o) => {
@@ -1919,7 +2190,7 @@ function Index() {
             if (saved) {
               row.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
             } else {
-              row.innerHTML = `<button class="btn-save">${escapeHtml(t("save.btn"))}</button>`;
+              row.innerHTML = `<button class="btn-save glass-button">${escapeHtml(t("save.btn"))}</button>`;
               row.querySelector("button")!.addEventListener("click", (ev) => {
                 ev.stopPropagation();
                 openFolderPickerFor(row, obj, word);
@@ -1929,9 +2200,19 @@ function Index() {
           }
           attachWidgetToggles(inner);
           attachDeepDiveHandlers(inner);
+          attachChips(inner);
           c.classList.add("open");
         });
       });
+
+      // Click simulation for restoring clicked card after search collapse
+      if (cardIdToOpenAfterRender) {
+        const targetCard = el.querySelector(`.word-card[data-hid="${cardIdToOpenAfterRender}"]`) as HTMLElement | null;
+        if (targetCard) {
+          cardIdToOpenAfterRender = null;
+          targetCard.click();
+        }
+      }
     }
 
     function todayISO() {
@@ -2007,12 +2288,15 @@ function Index() {
         return existing || wordsList[0];
       }
       if (existing) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("words")
           .update({ breakdown: JSON.stringify(breakdown) })
           .eq("id", existing.id)
           .select("id,folder_id,word,breakdown,created_at")
           .single();
+        if (error) {
+          console.error("Error updating word in folder in Supabase:", error);
+        }
         if (data) existing.breakdown = breakdown;
         return existing;
       }
@@ -2026,7 +2310,12 @@ function Index() {
         })
         .select("id,folder_id,word,breakdown,created_at")
         .single();
-      if (error || !data) return null;
+      if (error || !data) {
+        if (error) {
+          console.error("Error inserting word into folder in Supabase:", error);
+        }
+        return null;
+      }
       const entry: WordRow = {
         id: data.id,
         folder_id: data.folder_id,
@@ -2080,7 +2369,7 @@ function Index() {
         return;
       }
 
-      row.innerHTML = `<button class="btn-save" id="saveBtn">${escapeHtml(t("save.btn"))}</button>`;
+      row.innerHTML = `<button class="btn-save glass-button" id="saveBtn">${escapeHtml(t("save.btn"))}</button>`;
       results!.appendChild(row);
       row.querySelector("#saveBtn")!.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -2092,7 +2381,7 @@ function Index() {
     function openFolderPicker(row: HTMLElement) {
       closeFolderPicker();
       const pop = document.createElement("div");
-      pop.className = "folder-pop";
+      pop.className = "folder-pop glass-card";
       pop.innerHTML = `
         <div class="folder-pop-title">${escapeHtml(t("save.title"))}</div>
         <div class="folder-pop-list" style="max-height:280px;overflow-y:auto;">
@@ -2101,7 +2390,7 @@ function Index() {
               ? foldersList
                   .map(
                     (f) =>
-                      `<div class="folder-pop-item" data-folder-id="${escapeHtml(f.id)}"><span class="ic">📁</span><span>${escapeHtml(f.name)}</span></div>`,
+                      `<div class="folder-pop-item" data-folder-id="${escapeHtml(f.id)}"><span class="ic material-symbols-outlined" style="font-size:16px;">folder</span><span>${escapeHtml(f.name)}</span></div>`,
                   )
                   .join("")
               : `<div class="saved-folder-note" style="padding:8px 4px;">${escapeHtml(currentLang === "en" ? "No folders yet — create one below" : "Папок пока нет — создай ниже")}</div>`
@@ -2187,10 +2476,14 @@ function Index() {
     }
 
     let activeFolder = "__all__"; // "__all__" or folder.id
+    let libSortType = "date"; // "date" or "alpha"
     let libFilterFrom = "";
     let libFilterTo = "";
     let histFilterFrom = "";
     let histFilterTo = "";
+    let librarySearchQuery = "";
+    let historySearchQuery = "";
+    let cardIdToOpenAfterRender: string | null = null;
 
     function inDateRange(iso: string, from: string, to: string): boolean {
       if (!iso) return !from && !to;
@@ -2229,16 +2522,22 @@ function Index() {
       if (!el) return;
       let html = "";
       // "All words" tab — always first, never deletable
-      html += `<button class="lib-folder lib-folder--all ${activeFolder === "__all__" ? "active" : ""}" data-folder="__all__">
-        <span class="ic">✶</span><span class="nm">${escapeHtml(t("lib.all"))}</span><span class="ct">${folderCount("__all__")}</span>
+      html += `<button class="lib-folder glass-card lib-folder--all ${activeFolder === "__all__" ? "active" : ""}" data-folder="__all__">
+        <div class="ic-wrap"><span class="material-symbols-outlined">bookmarks</span></div><span class="nm">${escapeHtml(t("lib.all"))}</span><span class="ct">${folderCount("__all__")}</span>
       </button>`;
+
       if (foldersList.length) {
         for (const f of foldersList) {
-          html += `<button class="lib-folder ${activeFolder === f.id ? "active" : ""}" data-folder="${escapeHtml(f.id)}" data-user="1">
-            <span class="ic">📁</span><span class="nm">${escapeHtml(f.name)}</span><span class="ct">${folderCount(f.id)}</span><span class="folder-del" data-del="${escapeHtml(f.id)}" title="">✕</span>
+          html += `<button class="lib-folder glass-card ${activeFolder === f.id ? "active" : ""}" data-folder="${escapeHtml(f.id)}" data-user="1">
+            <div class="ic-wrap"><span class="material-symbols-outlined">folder</span></div><span class="nm">${escapeHtml(f.name)}</span><span class="ct">${folderCount(f.id)}</span><span class="folder-del" data-del="${escapeHtml(f.id)}" title="">×</span>
           </button>`;
         }
       }
+
+      // "+" card button — last folder, styled cleanly via CSS
+      html += `<button class="lib-folder-add-card glass-card" id="libAddFolderCardBtn" title="${escapeHtml(currentLang === "en" ? "New folder" : "Новая папка")}">
+        <div class="ic-wrap"><span class="material-symbols-outlined">add</span></div><span class="nm">${escapeHtml(currentLang === "en" ? "New Folder" : "Папка")}</span>
+      </button>`;
       // Desktop: show the "+ New folder" text input at the bottom of the sidebar
       html += `
         <div class="lib-folder-divider lib-folder-divider--desktop"></div>
@@ -2267,6 +2566,19 @@ function Index() {
           activeFolder = newFolder;
           renderLibrary();
         });
+      });
+
+      // Add folder via the horizontal "+" button next to All Words
+      const addCardBtn = el.querySelector("#libAddFolderCardBtn");
+      addCardBtn?.addEventListener("click", async () => {
+        const placeholder = currentLang === "en" ? "Folder name" : "Название папки";
+        const v = window.prompt(placeholder, "");
+        if (!v || !v.trim()) return;
+        const f = await addFolder(v.trim());
+        if (f) {
+          activeFolder = f.id;
+          renderLibrary();
+        }
       });
 
       // Desktop input (Enter to confirm)
@@ -2302,31 +2614,79 @@ function Index() {
     function renderLibraryWords() {
       const el = document.getElementById("libWords");
       if (!el) return;
+
+      // Update section header to active folder's name or default
+      const titleEl = document.getElementById("libWordsTitle");
+      if (titleEl) {
+        if (activeFolder === "__all__") {
+          titleEl.textContent = currentLang === "en" ? "Recent words" : "Недавние слова";
+        } else {
+          const folder = foldersList.find((f) => f.id === activeFolder);
+          titleEl.textContent = folder ? folder.name : (currentLang === "en" ? "Recent words" : "Недавние слова");
+        }
+      }
+
       const baseWords =
         activeFolder === "__all__"
           ? wordsList.slice()
           : wordsList.filter((w) => w.folder_id === activeFolder);
-      const words = baseWords.filter((w) => inDateRange(w.created_at, libFilterFrom, libFilterTo));
+      
+      // Filter words by date range
+      let words = baseWords.filter((w) => inDateRange(w.created_at, libFilterFrom, libFilterTo));
       const hasFilter = !!(libFilterFrom || libFilterTo);
 
-      // Inject round filter button into the page header (top-right of folders row)
+      // Filter words by search query
+      if (librarySearchQuery.trim()) {
+        const q = librarySearchQuery.toLowerCase().trim();
+        words = words.filter((w) => {
+          const wordMatch = w.word && w.word.toLowerCase().includes(q);
+          const b = w.breakdown || {};
+          let translation = b.translation || "";
+          if (typeof translation === "object") translation = translation.main || "";
+          const transMatch = String(translation).toLowerCase().includes(q);
+          return wordMatch || transMatch;
+        });
+      }
+
+      // Sort words by alphabetical or date order
+      if (libSortType === "alpha") {
+        words.sort((a, b) => a.word.localeCompare(b.word));
+      } else {
+        words.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+      }
+
+      // Inject action buttons into the page header
       const libHeader = document.getElementById("libPageHeader");
       if (libHeader) {
         libHeader.innerHTML = `
-          <div class="dfb-mobile-wrap lib-filter-wrap" id="libFilterMobileWrap" style="display:flex;">
-            <button class="dfb-mobile-btn ${hasFilter ? "active" : ""}" id="libFilterMobileBtn" title="${escapeHtml(currentLang === "en" ? "Filter by date" : "Фильтр по дате")}">⚙︎</button>
+          <div class="lib-actions-wrap" id="libActionsWrap" style="display: flex; gap: 12px; align-items: center; position: relative;">
+            <button class="lib-action-btn ${hasFilter ? "active" : ""}" id="libFilterBtn" title="${escapeHtml(currentLang === "en" ? "Filter by date" : "Фильтр по дате")}">
+              <span class="material-symbols-outlined" style="font-size: 20px;">filter_list</span>
+            </button>
+            <button class="lib-action-btn ${libSortType === "alpha" ? "active" : ""}" id="libSortBtn" title="${escapeHtml(currentLang === "en" ? "Sort alphabetically" : "Сортировка по алфавиту")}">
+              <span class="material-symbols-outlined" style="font-size: 20px;">sort_by_alpha</span>
+            </button>
           </div>`;
       }
 
       const attachFilter = () => {
-        // Round filter button toggle (in the page header)
-        const mobileWrap = document.getElementById("libFilterMobileWrap") as HTMLElement | null;
-        const mobileBtn = document.getElementById("libFilterMobileBtn") as HTMLButtonElement | null;
-        if (mobileBtn && mobileWrap) {
-          mobileBtn.addEventListener("click", (e) => {
+        const wrap = document.getElementById("libActionsWrap") as HTMLElement | null;
+        const filterBtn = document.getElementById("libFilterBtn") as HTMLButtonElement | null;
+        const sortBtn = document.getElementById("libSortBtn") as HTMLButtonElement | null;
+
+        if (sortBtn) {
+          sortBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            let panel = mobileWrap.querySelector(".dfb-panel") as HTMLElement | null;
-            if (panel) { panel.remove(); mobileBtn.classList.remove("active"); return; }
+            libSortType = libSortType === "alpha" ? "date" : "alpha";
+            renderLibraryWords();
+          });
+        }
+
+        if (filterBtn && wrap) {
+          filterBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            let panel = wrap.querySelector(".dfb-panel") as HTMLElement | null;
+            if (panel) { panel.remove(); filterBtn.classList.remove("active"); return; }
             const lblFrom2 = currentLang === "en" ? "from" : "с";
             const lblTo2 = currentLang === "en" ? "to" : "по";
             const lblReset2 = currentLang === "en" ? "Reset" : "Сбросить";
@@ -2337,18 +2697,19 @@ function Index() {
               <label class="dfb-field"><span>${escapeHtml(lblTo2)}</span><input type="date" id="libMobileTo" value="${escapeHtml(libFilterTo)}" /></label>
               <button class="dfb-reset" id="libMobileReset" ${hasFilter ? "" : "disabled"}>${escapeHtml(lblReset2)}</button>
             `;
-            mobileWrap.appendChild(panel);
-            mobileBtn.classList.add("active");
+            wrap.appendChild(panel);
+            filterBtn.classList.add("active");
             panel.querySelector("#libMobileFrom")?.addEventListener("change", (ev) => { libFilterFrom = (ev.target as HTMLInputElement).value; renderLibraryWords(); });
             panel.querySelector("#libMobileTo")?.addEventListener("change", (ev) => { libFilterTo = (ev.target as HTMLInputElement).value; renderLibraryWords(); });
             panel.querySelector("#libMobileReset")?.addEventListener("click", () => { libFilterFrom = ""; libFilterTo = ""; renderLibraryWords(); });
           });
+          
           // Close panel on outside click
           setTimeout(() => {
             document.addEventListener("click", function closePanelLib(e2) {
-              if (!mobileWrap.contains(e2.target as Node)) {
-                mobileWrap.querySelector(".dfb-panel")?.remove();
-                mobileBtn.classList.remove("active");
+              if (wrap && !wrap.contains(e2.target as Node)) {
+                wrap.querySelector(".dfb-panel")?.remove();
+                filterBtn.classList.remove("active");
                 document.removeEventListener("click", closePanelLib);
               }
             });
@@ -2359,11 +2720,25 @@ function Index() {
       if (!words.length) {
         const isEmpty = baseWords.length === 0;
         const noPeriod = currentLang === "en" ? "No words in this period" : "Нет слов за этот период";
+        const noResults = currentLang === "en" ? "No results found" : "Ничего не найдено";
+        const noResultsSub = currentLang === "en" ? "Try checking the spelling or query" : "Попробуй изменить поисковый запрос";
+        
+        let emptyTitle = (isEmpty ? t("empty.libAll.title") : t("empty.libFolder.title"));
+        let emptySub = (isEmpty ? t("empty.libAll.sub") : t("empty.libFolder.sub"));
+        
+        if (librarySearchQuery.trim()) {
+          emptyTitle = noResults;
+          emptySub = noResultsSub;
+        } else if (hasFilter && !isEmpty) {
+          emptyTitle = noPeriod;
+          emptySub = "";
+        }
+
         el.innerHTML = `
           <div class="empty-state">
             <div class="empty-icon">📖</div>
-            <div class="empty-title">${escapeHtml(hasFilter && !isEmpty ? noPeriod : (isEmpty ? t("empty.libAll.title") : t("empty.libFolder.title")))}</div>
-            <div class="empty-sub">${escapeHtml(hasFilter && !isEmpty ? "" : (isEmpty ? t("empty.libAll.sub") : t("empty.libFolder.sub")))}</div>
+            <div class="empty-title">${escapeHtml(emptyTitle)}</div>
+            <div class="empty-sub">${escapeHtml(emptySub)}</div>
           </div>`;
         attachFilter();
         return;
@@ -2372,17 +2747,81 @@ function Index() {
       el.innerHTML = words
         .map((w) => {
           const b = w.breakdown || {};
-          const firstCtx = (b.contexts && b.contexts[0]) || {};
-          const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-          const translation = (b.translation && typeof b.translation === "object" ? b.translation.main : b.translation) || firstCtx.title || firstEx.ru || "";
+          const light = b._light || null;
+          const full = b.breakdown || null;
+
+          function cleanTranslation(str: string): string {
+            if (!str) return "";
+            let res = str.trim();
+            if (res.includes(" — ")) {
+              const parts = res.split(" — ");
+              if (parts[1]) res = parts[1];
+            } else if (res.includes(" - ")) {
+              const parts = res.split(" - ");
+              if (parts[1]) res = parts[1];
+            }
+            res = res.replace(/[\*\`\_]/g, "").trim();
+            return res;
+          }
+
+          let translation = "";
+          if (b.translation) {
+            translation = typeof b.translation === "object" ? b.translation.main : b.translation;
+          }
+          if (!translation && light && light.translation) {
+            translation = typeof light.translation === "object" ? light.translation.main : light.translation;
+          }
+          if (!translation && full && full.translation) {
+            translation = typeof full.translation === "object" ? full.translation.main : full.translation;
+          }
+          if (!translation && light && light.wave1 && light.wave1.content) {
+            const firstLine = light.wave1.content.split("\n")[0] || "";
+            translation = cleanTranslation(firstLine);
+          }
+          if (!translation && full && Array.isArray(full.contexts) && full.contexts.length) {
+            const firstCtx = full.contexts[0] || {};
+            const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+            translation = firstCtx.title || firstEx.ru || "";
+          }
+          if (!translation && Array.isArray(b.contexts) && b.contexts.length) {
+            const firstCtx = b.contexts[0] || {};
+            const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
+            translation = firstCtx.title || firstEx.ru || "";
+          }
+          if (!translation && b.summary) {
+            translation = b.summary;
+          }
+          if (!translation && full && full.summary) {
+            translation = full.summary;
+          }
+          translation = String(translation || "").trim();
+
+          let pos = "";
+          if (b.pos) {
+            pos = b.pos;
+          } else if (light && light.pos) {
+            pos = light.pos;
+          } else if (full && full.pos) {
+            pos = full.pos;
+          }
+
+          const folder = foldersList.find((f) => f.id === w.folder_id);
+          const folderName = folder ? folder.name : "";
+
           return `
-            <div class="word-card" data-id="${escapeHtml(w.id)}">
+            <div class="word-card glass-card" data-id="${escapeHtml(w.id)}">
               <div class="wc-head">
-                <button class="wc-trash" data-trash="${escapeHtml(w.id)}" title="Удалить">✕</button>
+                <button class="wc-trash" data-trash="${escapeHtml(w.id)}" title="Удалить"><span class="material-symbols-outlined" style="font-size:14px;">close</span></button>
                 <button class="wc-chevron" data-chevron aria-label="Toggle">
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 6 8 10 12 6"></polyline></svg>
+                  <span class="material-symbols-outlined" style="font-size:16px;">expand_more</span>
                 </button>
-                <div class="wc-word">${escapeHtml(w.word)}</div>
+                <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+                  <div class="wc-word">${escapeHtml(w.word)}</div>
+                  ${folderName ? `<span class="wc-folder-badge" style="display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.45); color: var(--ll-on-surface-variant); border: 1px solid rgba(255, 255, 255, 0.7); text-transform: uppercase; letter-spacing: 0.05em;">${escapeHtml(folderName)}</span>` : ""}
+                  <button class="sound-btn" data-text="${escapeHtml(w.word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+                  </button>
+                </div>
                 ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
                 <div class="wc-meta">
                   <span class="wc-date">${escapeHtml(fmtDate(w.created_at))}</span>
@@ -2404,12 +2843,25 @@ function Index() {
           renderSaveRow();
         });
       });
+      
       el.querySelectorAll(".word-card").forEach((c) => {
         c.addEventListener("click", (e) => {
           const tgt = e.target as HTMLElement;
           if (tgt.closest(".wc-trash")) return;
+          if (tgt.closest(".sound-btn")) return;
           // Don't collapse the card when interacting with its expanded content
           if (tgt.closest(".wc-detail")) return;
+
+          const sBar = document.getElementById("appBarSearch");
+          if (sBar && sBar.classList.contains("expanded")) {
+            const id = c.getAttribute("data-id");
+            if (id) {
+              cardIdToOpenAfterRender = id;
+            }
+            collapseSearchBar();
+            return;
+          }
+
           const id = c.getAttribute("data-id") || "";
           const isOpen = c.classList.contains("open");
           el.querySelectorAll(".word-card.open").forEach((o) => {
@@ -2432,9 +2884,19 @@ function Index() {
           inner.innerHTML = renderUnifiedBreakdown(obj);
           attachWidgetToggles(inner);
           attachDeepDiveHandlers(inner);
+          attachChips(inner);
           c.classList.add("open");
         });
       });
+
+      // Click simulation for restoring clicked card after search collapse
+      if (cardIdToOpenAfterRender) {
+        const targetCard = el.querySelector(`.word-card[data-id="${cardIdToOpenAfterRender}"]`) as HTMLElement | null;
+        if (targetCard) {
+          cardIdToOpenAfterRender = null;
+          targetCard.click();
+        }
+      }
     }
 
 
@@ -2450,6 +2912,36 @@ function Index() {
       renderSaveRow();
     }
 
+    function expandSearchBar() {
+      const searchBar = document.getElementById("appBarSearch");
+      const searchInput = document.getElementById("appBarSearchInput") as HTMLInputElement | null;
+      if (searchBar) {
+        searchBar.classList.add("expanded");
+      }
+      if (searchInput) {
+        setTimeout(() => searchInput.focus(), 100);
+      }
+    }
+
+    function collapseSearchBar() {
+      const searchBar = document.getElementById("appBarSearch");
+      const searchInput = document.getElementById("appBarSearchInput") as HTMLInputElement | null;
+      if (searchBar) {
+        searchBar.classList.remove("expanded");
+      }
+      if (searchInput) {
+        searchInput.value = "";
+        searchInput.blur();
+      }
+      librarySearchQuery = "";
+      historySearchQuery = "";
+      
+      const isLibActive = document.getElementById("page-library")?.classList.contains("active");
+      const isHistActive = document.getElementById("page-history")?.classList.contains("active");
+      if (isLibActive) renderLibraryWords();
+      if (isHistActive) renderHistory();
+    }
+
     function switchPage(name: string) {
       document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
       const pg = document.getElementById("page-" + name);
@@ -2459,11 +2951,26 @@ function Index() {
       });
       document.body.classList.toggle("lib-page", name === "library");
       document.body.classList.toggle("page-breakdown", name === "breakdown");
+
+      // Update app-bar search visibility
+      const searchBar = document.getElementById("appBarSearch");
+      if (searchBar) {
+        if (name === "library" || name === "history") {
+          searchBar.style.display = "flex";
+        } else {
+          searchBar.style.display = "none";
+          if (searchBar.classList.contains("expanded")) {
+            collapseSearchBar();
+          }
+        }
+      }
+
       if (name === "library") renderLibrary();
       if (name === "history") renderHistory();
       if (name === "breakdown") setTimeout(() => input!.focus(), 100);
       document.getElementById("sidebar")!.classList.remove("open");
       document.getElementById("sidebarBackdrop")!.classList.remove("open");
+      document.body.classList.remove("sidebar-open");
     }
     document.querySelectorAll(".side-item").forEach((tEl) => {
       tEl.addEventListener("click", () => {
@@ -2473,15 +2980,62 @@ function Index() {
     });
     document.body.classList.add("page-breakdown");
     document.getElementById("menuTrigger")!.addEventListener("click", () => {
-      document.getElementById("sidebar")!.classList.toggle("open");
+      const open = document.getElementById("sidebar")!.classList.toggle("open");
       document.getElementById("sidebarBackdrop")!.classList.toggle("open");
+      document.body.classList.toggle("sidebar-open", open);
     });
     document.getElementById("sidebarBackdrop")!.addEventListener("click", () => {
       document.getElementById("sidebar")!.classList.remove("open");
       document.getElementById("sidebarBackdrop")!.classList.remove("open");
+      document.body.classList.remove("sidebar-open");
     });
 
-    document.getElementById("langToggle")!.addEventListener("click", () => {
+    // Wire up Animated Search Bar event listeners
+    const searchBar = document.getElementById("appBarSearch");
+    const searchInput = document.getElementById("appBarSearchInput") as HTMLInputElement | null;
+    
+    if (searchBar) {
+      searchBar.addEventListener("click", (e) => {
+        if (!searchBar.classList.contains("expanded")) {
+          e.stopPropagation();
+          expandSearchBar();
+        }
+      });
+    }
+    
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        const val = (e.target as HTMLInputElement).value;
+        const isLibActive = document.getElementById("page-library")?.classList.contains("active");
+        const isHistActive = document.getElementById("page-history")?.classList.contains("active");
+        
+        if (isLibActive) {
+          librarySearchQuery = val;
+          renderLibraryWords();
+        } else if (isHistActive) {
+          historySearchQuery = val;
+          renderHistory();
+        }
+      });
+      
+      searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          collapseSearchBar();
+        }
+      });
+    }
+
+    const onDocClickCloseSearch = (e: MouseEvent) => {
+      const sBar = document.getElementById("appBarSearch");
+      if (!sBar || !sBar.classList.contains("expanded")) return;
+      const target = e.target as HTMLElement;
+      if (!sBar.contains(target)) {
+        collapseSearchBar();
+      }
+    };
+    document.addEventListener("click", onDocClickCloseSearch);
+
+    document.getElementById("langToggle")?.addEventListener("click", () => {
       currentLang = currentLang === "ru" ? "en" : "ru";
       store.lang = currentLang;
       saveStore(store);
@@ -2538,7 +3092,7 @@ function Index() {
       let fullObj: any = null;
 
       loading!.style.display = "none";
-      results!.innerHTML = renderLightContent(lightData, true);
+      results!.innerHTML = renderLightContent(lightData, true, true);
       attachWidgetToggles(results!);
       attachChips();
       searchWrap!.classList.add("compact");
@@ -2594,7 +3148,12 @@ function Index() {
                   💡 <em>${escapeHtml(lightData.input_note)}</em>
                 </div>
               `;
-              results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
+              const detailInner = results!.querySelector(".wc-detail-inner");
+              if (detailInner) {
+                detailInner.insertBefore(tempDiv.firstElementChild!, detailInner.firstChild);
+              } else {
+                results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
+              }
             }
 
             // Replace Wave 1 skeleton if ready
@@ -2666,24 +3225,23 @@ function Index() {
                 };
               }
               const recommendedBadgeHtml = lightData.deep_dive.recommended
-                ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); box-shadow: 0 0 12px rgba(245, 158, 11, 0.15);">🔥 Стоит открыть</span>`
-                : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.1);">💡 Обзора достаточно</span>`;
+                ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(var(--ll-primary-rgb, 48, 89, 185), 0.08); color: var(--ll-primary); border: 1px solid rgba(var(--ll-primary-rgb, 48, 89, 185), 0.18); backdrop-filter: blur(8px);">Стоит открыть</span>`
+                : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(8px);">Обзора достаточно</span>`;
 
               const tempDiv = document.createElement("div");
               tempDiv.innerHTML = `
                 <div class="deep-dive-card fade-up glass-card" style="margin-top: 28px; padding: 24px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 16px;">
                   <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Раздел</div>
+                    <div class="deep-dive-title" style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">Глубокий разбор</div>
                     ${recommendedBadgeHtml}
                   </div>
                   <div>
-                    <div class="deep-dive-title" style="font-size: 20px; font-weight: 800; color: var(--text); font-family: inherit;">Глубокий разбор</div>
-                    <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5; margin-top: 8px;">
+                    <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5;">
                       ${escapeHtml(lightData.deep_dive.hint || "")}
                     </div>
                   </div>
                   <div style="margin-top: 4px;">
-                    <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 46px; font-size: 15px; font-weight: 700; transition: all 0.2s;" data-canonical="${escapeHtml(lightData.canonical || "")}">
+                    <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 42px; font-size: 14px; font-weight: 500; transition: all 0.2s; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px); border-radius: 10px; color: var(--text);" data-canonical="${escapeHtml(lightData.canonical || "")}">
                       ${escapeHtml(lightData.deep_dive.label || "Разобрать подробнее")}
                     </button>
                   </div>
@@ -2791,7 +3349,7 @@ function Index() {
             if (unifiedBreakdown) {
               // Has cached Full — show it directly using unified renderer
               lastBreakdown = unifiedBreakdown;
-              results!.innerHTML = renderUnifiedBreakdown(unifiedBreakdown);
+              results!.innerHTML = renderUnifiedBreakdown(unifiedBreakdown, true);
               
               // Ensure we save it under full_json in history if we got a unified response from server but didn't have it locally
               const alreadyInHistoryWithFull = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase() && h.mode === "full_json");
@@ -2801,7 +3359,7 @@ function Index() {
             } else {
               // No cached Full — show Light and save to history
               lastBreakdown = { _light: lightData };
-              results!.innerHTML = renderUnifiedBreakdown(lastBreakdown);
+              results!.innerHTML = renderUnifiedBreakdown(lastBreakdown, true);
               
               // Only add if not already in history
               const alreadyInHistory = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase());
@@ -2832,14 +3390,15 @@ function Index() {
       busy = true;
 
       searchWrap!.classList.add("compact");
-      results!.innerHTML = renderStage2(null, "full", true);
-      attachWidgetToggles(results!);
-      attachChips();
 
       // Pass pos/type from the last known Light response if available
       const ld = lastLightData;
       const pos = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.pos : "") || "";
       const type = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.type : "") || "";
+
+      results!.innerHTML = wrapHtmlInWordCard(renderStage2(null, "full", true), { breakdown: { pos: pos, translation: "" } }, canonical, true);
+      attachWidgetToggles(results!);
+      attachChips();
 
       let fullObj: any = null;
 
@@ -2851,13 +3410,6 @@ function Index() {
           fullObj = parsed ?? cleaned;
 
           if (fullObj && typeof fullObj === "object") {
-            // Prepend stage1Html (main word header) when it first appears
-            if (fullObj.word && !results!.querySelector("[data-stage1]")) {
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = `<div data-stage1>${renderStage1(fullObj)}</div>`;
-              results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
-            }
-
             // Replace completed blocks incrementally
             if (Array.isArray(fullObj.blocks)) {
               const completedCount = isFinished ? fullObj.blocks.length : Math.max(0, fullObj.blocks.length - 1);
@@ -2919,6 +3471,11 @@ function Index() {
             }
           }
           addHistory({ word: fullObj.word || canonical, translation: "", mode: "full_json" }, fullObj);
+          
+          // Re-render using unified layout with wrapInCard = true
+          results!.innerHTML = renderUnifiedBreakdown(fullObj, true);
+          attachWidgetToggles(results!);
+          attachChips();
           renderSaveRow();
         }
       } catch (err) {
@@ -3089,6 +3646,7 @@ function Index() {
     return () => {
       form.removeEventListener("submit", onSubmit);
       document.removeEventListener("click", onDocClickClose);
+      document.removeEventListener("click", onDocClickCloseSearch);
       authSub.subscription.unsubscribe();
       delete (window as unknown as { __lnRunBreakdown?: unknown }).__lnRunBreakdown;
       delete (window as unknown as { __lnResetBreakdown?: unknown }).__lnResetBreakdown;
@@ -3097,51 +3655,50 @@ function Index() {
 
   return (
     <div className="ln">
-      <aside className="sidebar" id="sidebar">
-        <div className="sidebar-logo">
-          <div className="brand">
-            <div className="brand-name text-green-800">
-              <span className="brand-word">Lev</span>
-              <span className="brand-amp">&amp;</span>
-              <span className="brand-word">Nikol</span>
-            </div>
-            <div className="brand-sub" data-i18n="brand.sub">
-              Разбор английских слов
-            </div>
+      {/* ── Floating App Bar ── */}
+      <div className="app-bar">
+        <button className="menu-trigger glass-button" id="menuTrigger" aria-label="Меню" type="button">
+          <span className="material-symbols-outlined">menu</span>
+        </button>
+
+        {/* Animated Search Bar */}
+        <div className="app-bar-search" id="appBarSearch" style={{ display: "none" }}>
+          <input
+            type="text"
+            id="appBarSearchInput"
+            placeholder="Поиск..."
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <div className="search-icon" id="appBarSearchIcon">
+            <span className="material-symbols-outlined">search</span>
           </div>
         </div>
-        <button className="side-item active" data-page="breakdown" type="button">
-          <span className="ic">🔤</span>
-          <span data-i18n="nav.breakdown">Разбор</span>
-        </button>
-        <button className="side-item" data-page="library" type="button">
-          <span className="ic">📁</span>
-          <span data-i18n="nav.library">Мои слова</span>
-        </button>
-        <button className="side-item" data-page="history" type="button">
-          <span className="ic">🕓</span>
-          <span data-i18n="nav.history">История разборов</span>
-        </button>
-        <button className="side-item" data-page="top" type="button">
-          <span className="ic">⭐</span>
-          <span data-i18n="nav.top">Топ слов</span>
-        </button>
-        <div className="side-spacer"></div>
-        <div className="side-bottom">
-          <button className="lang-toggle" id="langToggle" type="button">
-            <span className="ic">🌐</span>
-            <span className="lang-pill">
-              <span id="langRu" className="lang-opt active">
-                RU
-              </span>
-              <span className="lang-sep">/</span>
-              <span id="langEn" className="lang-opt">
-                EN
-              </span>
-            </span>
+      </div>
+
+      {/* ── Navigation Drawer ── */}
+      <aside className="sidebar glass-panel" id="sidebar">
+        <nav>
+          <button className="side-item active" data-page="breakdown" type="button">
+            <span className="ic material-symbols-outlined">translate</span>
+            <span data-i18n="nav.breakdown">Разбор слова</span>
           </button>
+          <button className="side-item" data-page="library" type="button">
+            <span className="ic material-symbols-outlined">book</span>
+            <span data-i18n="nav.library">Мои слова</span>
+          </button>
+          <button className="side-item" data-page="history" type="button">
+            <span className="ic material-symbols-outlined">history</span>
+            <span data-i18n="nav.history">История</span>
+          </button>
+          <button className="side-item" data-page="top" type="button">
+            <span className="ic material-symbols-outlined">workspace_premium</span>
+            <span data-i18n="nav.top">Топ слов</span>
+          </button>
+        </nav>
+        <div className="side-bottom">
           <button className="side-item" data-page="account" type="button">
-            <span className="ic">👤</span>
+            <span className="ic material-symbols-outlined">account_circle</span>
             <span data-i18n="nav.account">Аккаунт</span>
           </button>
         </div>
@@ -3149,20 +3706,18 @@ function Index() {
       <div className="sidebar-backdrop" id="sidebarBackdrop"></div>
 
       <div className="wrap">
-        <div className="header">
-          <button className="menu-trigger" id="menuTrigger" aria-label="Меню" type="button">
-            ☰
-          </button>
-        </div>
+        {/* ── Spacer for fixed app bar ── */}
+        <div className="header" />
 
+        {/* ── Breakdown Page ── */}
         <div className="page active" id="page-breakdown">
           <div className="page-inner">
-            <div className="search-wrap" id="searchWrap" style={{ display: "none" }} aria-hidden="true">
+            <div className="search-wrap glass-input" id="searchWrap" style={{ display: "none" }} aria-hidden="true">
               <form className="search" id="searchForm" autoComplete="off">
                 <input
                   id="input"
                   type="text"
-                  placeholder=""
+                  placeholder="Введи слово или фразу…"
                   spellCheck={false}
                   autoCapitalize="off"
                 />
@@ -3173,13 +3728,13 @@ function Index() {
                   aria-label="Очистить"
                   style={{ display: "none" }}
                 >
-                  ×
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
                 </button>
-                <button className="btn-go" id="goBtn" type="submit">
-                  Разобрать →
+                <button className="btn-go glass-button" id="goBtn" type="submit" aria-label="Разобрать">
+                  <span className="material-symbols-outlined">send</span>
                 </button>
               </form>
-              <div id="suggestBox" className="suggest-box" style={{ display: "none" }}></div>
+              <div id="suggestBox" className="suggest-box glass-card" style={{ display: "none" }}></div>
               <div className="context-field">
                 <label htmlFor="contextInput" className="context-label">
                   Контекст
@@ -3196,15 +3751,15 @@ function Index() {
                 <input
                   id="contextInput"
                   type="text"
-                  className="context-input"
-                  placeholder=""
+                  className="context-input glass-input"
+                  placeholder="Например: деловая переписка"
                   autoComplete="off"
                 />
               </div>
             </div>
 
             <div id="loading" className="loading" style={{ display: "none" }}>
-              <span>Анализирую</span>
+              <span style={{ color: "var(--ll-outline)", fontSize: 14 }}>Анализирую</span>
               <span className="dots">
                 <span>.</span>
                 <span>.</span>
@@ -3213,31 +3768,28 @@ function Index() {
             </div>
 
             <div id="results" className="results"></div>
-
-            <div className="manifesto" aria-hidden="true">
-              <p>Только ты знаешь, как тебе нужно учить язык.</p>
-              <p>
-                Приложений сотни. Все обещают результат. Все говорят по-разному. В какой-то момент
-                перестаёшь понимать — кому верить и правильно ли ты вообще всё делаешь.
-              </p>
-              <p>
-                Lev &amp; Nikol не учит тебя. Он помогает выстроить свою структуру — встретил слово,
-                разобрал. Хочешь выразить мысль — нашёл как. Только то, что нужно именно тебе.
-              </p>
-            </div>
           </div>
         </div>
 
+        {/* ── Library Page ── */}
         <div className="page" id="page-library">
           <div className="page-inner">
-            <div className="lib-page-header" id="libPageHeader"></div>
+            <div className="lib-page-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h2 className="section-label" style={{ margin: 0 }} data-i18n="lib.folders">Папки</h2>
+            </div>
             <div className="library">
-              <div className="lib-folders" id="libFolders"></div>
+              <div className="lib-folders no-scrollbar" id="libFolders"></div>
+              
+              <div className="lib-words-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "24px", marginBottom: "16px", borderTop: "1px solid rgba(255, 255, 255, 0.15)", paddingTop: "20px" }}>
+                <h2 className="section-label" id="libWordsTitle" style={{ margin: 0 }} data-i18n="lib.recentWords">Недавние слова</h2>
+                <div id="libPageHeader"></div>
+              </div>
               <div className="lib-words" id="libWords"></div>
             </div>
           </div>
         </div>
 
+        {/* ── History Page ── */}
         <div className="page" id="page-history">
           <div className="page-inner">
             <div className="hist-page-header" id="histPageHeader"></div>
@@ -3245,67 +3797,25 @@ function Index() {
           </div>
         </div>
 
+        {/* ── Top Page ── */}
         <div className="page" id="page-top">
           <div className="page-inner">
-            <h2
-              data-page-title="top.title"
-              style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", margin: "0 0 20px" }}
-            >
-              Топ слов
-            </h2>
-            <div
-              className="empty-state"
-              style={{
-                background: "var(--bg-elev)",
-                border: "1px solid var(--border)",
-                borderRadius: 14,
-              }}
-            >
-              <div className="empty-icon">⭐</div>
-              <div className="empty-title" id="topEmptyT">
-                Скоро здесь появятся подборки слов
-              </div>
-              <div className="empty-sub" id="topEmptyS">
-                Следи за обновлениями.
-              </div>
+            <div className="empty-state">
+              <div className="empty-icon">✦</div>
+              <div className="empty-title" id="topEmptyT">Скоро здесь появятся подборки слов</div>
+              <div className="empty-sub" id="topEmptyS">Следи за обновлениями.</div>
             </div>
           </div>
         </div>
 
+        {/* ── Account Page ── */}
         <div className="page" id="page-account">
-          <div className="page-inner">
-            <h2
-              data-page-title="account.title"
-              style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", margin: "0 0 20px" }}
-            >
-              Аккаунт
-            </h2>
-            <div
-              style={{
-                background: "var(--bg-elev)",
-                border: "1px solid var(--border)",
-                borderRadius: 14,
-                padding: 32,
-                textAlign: "center",
-                maxWidth: 380,
-                margin: "0 auto",
-              }}
-            >
-              <div
-                style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: 999,
-                  background: "var(--slate-soft)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--text-muted)",
-                  fontSize: 30,
-                  margin: "0 auto 14px",
-                }}
-              >
-                👤
+          <div className="page-inner" style={{ paddingTop: 24 }}>
+            <div className="account-card glass-card fade-up" style={{ padding: "40px 32px" }}>
+              <div className="w-20 h-20 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-sm mx-auto mb-6">
+                <span className="material-symbols-outlined" style={{ fontSize: 42, fontVariationSettings: "'FILL' 1" }}>
+                  account_circle
+                </span>
               </div>
               <AuthPanel />
             </div>
@@ -3338,7 +3848,7 @@ function AuthPanel() {
   }, []);
 
   const goHome = () => {
-    const btn = document.querySelector<HTMLButtonElement>('.side-item[data-page="main"]');
+    const btn = document.querySelector<HTMLButtonElement>('.side-item[data-page="breakdown"]');
     btn?.click();
   };
 
@@ -3376,68 +3886,79 @@ function AuthPanel() {
 
   if (session) {
     return (
-      <>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
+      <div className="profile-info">
+        <div className="profile-email">
           {session.user.email}
         </div>
-        <div style={{ fontSize: 14, color: "var(--text-muted)", marginBottom: 20 }}>
-          Ты вошёл в аккаунт
+        <div className="profile-sub">
+          Вы вошли в свой аккаунт
         </div>
-        <button className="side-login" onClick={onLogout} style={{ cursor: "pointer" }}>
+        <button className="auth-logout-btn" onClick={onLogout} style={{ cursor: "pointer" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>logout</span>
           Выйти
         </button>
-      </>
+      </div>
     );
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "1px solid var(--border)",
-    background: "var(--bg)",
-    color: "var(--text)",
-    fontSize: 14,
-    marginBottom: 10,
-    fontFamily: "inherit",
-  };
-
   return (
     <form onSubmit={onSubmit}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, justifyContent: "center" }}>
+      <div className="auth-toggle-group">
         <button
           type="button"
+          className={`auth-toggle-btn ${mode === "login" ? "active" : ""}`}
           onClick={() => { setMode("login"); setError(null); setInfo(null); }}
-          style={{
-            padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border)",
-            background: mode === "login" ? "var(--text)" : "transparent",
-            color: mode === "login" ? "var(--bg)" : "var(--text)",
-            cursor: "pointer", fontSize: 13, fontWeight: 600,
-          }}
-        >Вход</button>
+        >
+          Вход
+        </button>
         <button
           type="button"
+          className={`auth-toggle-btn ${mode === "signup" ? "active" : ""}`}
           onClick={() => { setMode("signup"); setError(null); setInfo(null); }}
-          style={{
-            padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border)",
-            background: mode === "signup" ? "var(--text)" : "transparent",
-            color: mode === "signup" ? "var(--bg)" : "var(--text)",
-            cursor: "pointer", fontSize: 13, fontWeight: 600,
-          }}
-        >Регистрация</button>
+        >
+          Регистрация
+        </button>
       </div>
-      <input
-        type="email" required placeholder="Email" value={email}
-        onChange={(e) => setEmail(e.target.value)} style={inputStyle}
-      />
-      <input
-        type="password" required minLength={6} placeholder="Пароль" value={password}
-        onChange={(e) => setPassword(e.target.value)} style={inputStyle}
-      />
-      {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 10 }}>{error}</div>}
-      {info && <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 10 }}>{info}</div>}
-      <button type="submit" disabled={busy} className="side-login" style={{ cursor: busy ? "wait" : "pointer", width: "100%" }}>
-        {busy ? "..." : mode === "login" ? "Войти" : "Зарегистрироваться"}
+
+      <div className="auth-input-group">
+        <input
+          type="email"
+          required
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="auth-input"
+          autoComplete="email"
+        />
+      </div>
+
+      <div className="auth-input-group">
+        <input
+          type="password"
+          required
+          minLength={6}
+          placeholder="Пароль"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="auth-input"
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
+        />
+      </div>
+
+      {error && <div className="auth-error">{error}</div>}
+      {info && <div className="auth-info">{info}</div>}
+
+      <button type="submit" disabled={busy} className="auth-submit-btn" style={{ cursor: busy ? "wait" : "pointer" }}>
+        {busy ? (
+          <span className="mt-spin" style={{ width: 14, height: 14 }}></span>
+        ) : (
+          <>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+              {mode === "login" ? "login" : "person_add"}
+            </span>
+            {mode === "login" ? "Войти" : "Зарегистрироваться"}
+          </>
+        )}
       </button>
     </form>
   );

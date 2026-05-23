@@ -1,0 +1,289 @@
+<!DOCTYPE html><html class="light" lang="ru" style=""><head>
+<meta charset="utf-8">
+<meta content="width=device-width, initial-scale=1.0" name="viewport">
+<title>Linguist - Мои слова</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<!-- Google Fonts: Manrope -->
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;500;700&amp;display=swap" rel="stylesheet">
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "secondary": "#3d5f91",
+                    "on-primary-fixed": "#001849",
+                    "inverse-surface": "#2d3135",
+                    "background": "#f7f9fe",
+                    "primary": "#3059b9",
+                    "inverse-on-surface": "#eff1f6",
+                    "surface-container-lowest": "#ffffff",
+                    "on-error": "#ffffff",
+                    "on-tertiary-fixed": "#261900",
+                    "surface-dim": "#d8dadf",
+                    "on-secondary-container": "#2e5182",
+                    "tertiary-container": "#cb9600",
+                    "surface-bright": "#f7f9fe",
+                    "surface-variant": "#e0e2e7",
+                    "surface": "#f7f9fe",
+                    "primary-container": "#769bff",
+                    "on-secondary-fixed": "#001c3b",
+                    "inverse-primary": "#b3c5ff",
+                    "surface-container-highest": "#e0e2e7",
+                    "primary-fixed": "#dae1ff",
+                    "on-primary-container": "#003080",
+                    "secondary-fixed-dim": "#a7c8ff",
+                    "outline-variant": "#c4c6d4",
+                    "secondary-container": "#a3c5fd",
+                    "on-tertiary-container": "#473200",
+                    "secondary-fixed": "#d5e3ff",
+                    "primary-fixed-dim": "#b3c5ff",
+                    "on-secondary-fixed-variant": "#224777",
+                    "surface-tint": "#3059b9",
+                    "on-tertiary": "#ffffff",
+                    "surface-container-low": "#f1f4f9",
+                    "tertiary-fixed-dim": "#f8bd37",
+                    "on-secondary": "#ffffff",
+                    "error": "#ba1a1a",
+                    "on-error-container": "#93000a",
+                    "on-background": "#181c20",
+                    "tertiary": "#7a5900",
+                    "surface-container-high": "#e6e8ed",
+                    "tertiary-fixed": "#ffdea2",
+                    "surface-container": "#eceef3",
+                    "on-primary-fixed-variant": "#0940a0",
+                    "on-surface": "#181c20",
+                    "on-primary": "#ffffff",
+                    "error-container": "#ffdad6",
+                    "on-surface-variant": "#434652",
+                    "on-tertiary-fixed-variant": "#5c4200",
+                    "outline": "#747684"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "floating-margin": "32px",
+                    "stack-space": "12px",
+                    "element-gap": "16px",
+                    "container-padding": "24px"
+            },
+            "fontFamily": {
+                    "label-caps": ["Manrope"],
+                    "headline-md": ["Manrope"],
+                    "display": ["Manrope"],
+                    "body-md": ["Manrope"],
+                    "body-lg": ["Manrope"]
+            },
+            "fontSize": {
+                    "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.1em", "fontWeight": "500"}],
+                    "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "400"}],
+                    "display": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                    "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                    "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background: linear-gradient(to bottom, #a0c4ff 0%, #d8e5ff 40%, #ffffff 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            overflow: hidden;
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 12px 32px rgba(48, 89, 185, 0.05);
+        }
+
+        .glass-button {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5), 0 4px 12px rgba(48, 89, 185, 0.06);
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.4);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border-right: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .atmospheric-orb {
+            position: fixed;
+            width: 700px;
+            height: 700px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 70%);
+            z-index: -1;
+            filter: blur(80px);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="text-on-surface">
+<!-- Background Content (from Screen 14) -->
+<div class="relative w-full h-screen overflow-y-auto no-scrollbar pb-32">
+<!-- Atmospheric Background Elements -->
+<div class="atmospheric-orb top-[-150px] left-[-150px]"></div>
+<div class="atmospheric-orb bottom-[-250px] right-[-150px]"></div>
+<!-- Dim Overlay -->
+<div class="fixed inset-0 bg-primary/10 z-40"></div>
+<!-- Top AppBar -->
+<div class="fixed top-6 left-6 right-6 z-30 flex items-center justify-between pointer-events-none">
+<button class="pointer-events-auto glass-button w-12 h-12 flex items-center justify-center rounded-full text-primary">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<button class="pointer-events-auto glass-button w-12 h-12 flex items-center justify-center rounded-full text-primary">
+<span class="material-symbols-outlined">search</span>
+</button>
+</div>
+<main class="px-floating-margin space-y-12 pt-28">
+<!-- Folders Section -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="font-label-caps text-label-caps text-primary/70 tracking-widest uppercase">Папки</h2>
+<button class="text-primary font-label-caps text-label-caps">Все</button>
+</div>
+<div class="flex overflow-x-auto no-scrollbar gap-element-gap -mx-floating-margin px-floating-margin pb-4">
+<div class="glass-card min-w-[140px] p-6 rounded-[32px] flex flex-col items-center gap-3">
+<div class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">work</span>
+</div>
+<span class="font-body-md text-body-md font-medium text-on-surface">Бизнес</span>
+</div>
+<div class="glass-card min-w-[140px] p-6 rounded-[32px] flex flex-col items-center gap-3">
+<div class="w-12 h-12 rounded-full bg-secondary-container/30 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined">flight</span>
+</div>
+<span class="font-body-md text-body-md font-medium text-on-surface">Путешествия</span>
+</div>
+<div class="glass-card min-w-[140px] p-6 rounded-[32px] flex flex-col items-center gap-3">
+<div class="w-12 h-12 rounded-full bg-tertiary-fixed/30 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined">coffee</span>
+</div>
+<span class="font-body-md text-body-md font-medium text-on-surface">Быт</span>
+</div>
+</div>
+</section>
+<!-- Recent Words Section -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="font-label-caps text-label-caps text-primary/70 tracking-widest uppercase">Недавние слова</h2>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-on-surface-variant">filter_list</span>
+<span class="material-symbols-outlined text-on-surface-variant">sort_by_alpha</span>
+</div>
+</div>
+<div class="space-y-stack-space">
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Draft</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Сущ.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Черновик, проект документа</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">volume_up</span>
+</div>
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Perspective</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Сущ.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Перспектива, точка зрения</p>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">volume_up</span>
+</div>
+</div>
+</section>
+</main>
+</div>
+<!-- Navigation Drawer (Open) -->
+<aside class="fixed left-0 top-0 h-full w-3/4 max-w-[320px] z-[100] glass-panel rounded-r-[40px] shadow-[40px_0_80px_rgba(48,89,185,0.15)] ring-1 ring-white/30 flex flex-col p-8 transform translate-x-0 transition-transform duration-500 ease-out" style="--mouse-x: 279px; --mouse-y: 833px;">
+<!-- Profile Header -->
+
+<!-- Main Navigation List -->
+<nav class="flex-grow flex flex-col gap-2 justify-center">
+<a class="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/40 transition-colors group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">translate</span>
+<span class="font-body-md font-medium text-on-surface">Разбор слова</span>
+</a>
+<a class="flex items-center gap-4 p-4 rounded-2xl bg-white/40 border border-white/50 shadow-sm" href="#">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">book</span>
+<span class="font-body-md font-bold text-primary">Мои слова</span>
+</a>
+<a class="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/40 transition-colors group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">history</span>
+<span class="font-body-md font-medium text-on-surface">История</span>
+</a>
+<a class="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/40 transition-colors group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">account_circle</span>
+<span class="font-body-md font-medium text-on-surface">Аккаунт</span>
+</a>
+</nav>
+<!-- Bottom Actions -->
+<div class="mt-auto border-t border-white/30 pt-6 flex flex-col gap-2">
+<a class="flex items-center gap-4 p-4 rounded-2xl hover:bg-white/40 transition-colors group" href="#">
+<span class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">settings</span>
+<span class="font-body-md font-medium text-on-surface">Настройки</span>
+</a>
+
+</div>
+</aside>
+<script>
+    // Interaction effects
+    document.querySelectorAll('.glass-panel, .glass-card, .glass-button').forEach(el => {
+        el.addEventListener('mousemove', (e) => {
+            const rect = el.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            el.style.setProperty('--mouse-x', `${x}px`);
+            el.style.setProperty('--mouse-y', `${y}px`);
+        });
+    });
+
+    // Close panel animation logic (simulated)
+    document.addEventListener('click', (e) => {
+        const drawer = document.querySelector('aside');
+        const overlay = document.querySelector('.bg-primary\\/10');
+        if (!drawer.contains(e.target) && !e.target.closest('button')) {
+            drawer.style.transform = 'translateX(-105%)';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 500);
+        }
+    });
+</script>
+
+
+</body></html>

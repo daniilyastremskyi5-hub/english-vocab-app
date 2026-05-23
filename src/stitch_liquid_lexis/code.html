@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru" style=""><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>История слов - Lexis</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts: Manrope -->
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;500;700&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#3d5f91",
+                        "on-primary-fixed": "#001849",
+                        "inverse-surface": "#2d3135",
+                        "background": "#f7f9fe",
+                        "primary": "#3059b9",
+                        "inverse-on-surface": "#eff1f6",
+                        "surface-container-lowest": "#ffffff",
+                        "on-error": "#ffffff",
+                        "on-tertiary-fixed": "#261900",
+                        "surface-dim": "#d8dadf",
+                        "on-secondary-container": "#2e5182",
+                        "tertiary-container": "#cb9600",
+                        "surface-bright": "#f7f9fe",
+                        "surface-variant": "#e0e2e7",
+                        "surface": "#f7f9fe",
+                        "primary-container": "#769bff",
+                        "on-secondary-fixed": "#001c3b",
+                        "inverse-primary": "#b3c5ff",
+                        "surface-container-highest": "#e0e2e7",
+                        "primary-fixed": "#dae1ff",
+                        "on-primary-container": "#003080",
+                        "secondary-fixed-dim": "#a7c8ff",
+                        "outline-variant": "#c4c6d4",
+                        "secondary-container": "#a3c5fd",
+                        "on-tertiary-container": "#473200",
+                        "secondary-fixed": "#d5e3ff",
+                        "primary-fixed-dim": "#b3c5ff",
+                        "on-secondary-fixed-variant": "#224777",
+                        "surface-tint": "#3059b9",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-low": "#f1f4f9",
+                        "tertiary-fixed-dim": "#f8bd37",
+                        "on-secondary": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "on-background": "#181c20",
+                        "tertiary": "#7a5900",
+                        "surface-container-high": "#e6e8ed",
+                        "tertiary-fixed": "#ffdea2",
+                        "surface-container": "#eceef3",
+                        "on-primary-fixed-variant": "#0940a0",
+                        "on-surface": "#181c20",
+                        "on-primary": "#ffffff",
+                        "error-container": "#ffdad6",
+                        "on-surface-variant": "#434652",
+                        "on-tertiary-fixed-variant": "#5c4200",
+                        "outline": "#747684"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "floating-margin": "32px",
+                        "stack-space": "12px",
+                        "element-gap": "16px",
+                        "container-padding": "24px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Manrope"],
+                        "headline-md": ["Manrope"],
+                        "display": ["Manrope"],
+                        "body-md": ["Manrope"],
+                        "body-lg": ["Manrope"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", {"lineHeight": "1.0", "letterSpacing": "0.1em", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "400"}],
+                        "display": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "400"}],
+                        "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+                        "body-lg": ["18px", {"lineHeight": "1.6", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background: linear-gradient(to bottom, #a0c4ff 0%, #d8e5ff 40%, #ffffff 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            overflow-x: hidden;
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .glass-card {
+            background: rgba(255, 255, 255, 0.45);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.7);
+            box-shadow: 0 12px 32px rgba(48, 89, 185, 0.05);
+        }
+
+        .glass-button {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.5), 0 4px 12px rgba(48, 89, 185, 0.06);
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .atmospheric-orb {
+            position: fixed;
+            width: 700px;
+            height: 700px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 70%);
+            z-index: -1;
+            filter: blur(80px);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="text-on-surface pb-12">
+<!-- Atmospheric Background Elements -->
+<div class="atmospheric-orb top-[-150px] left-[-150px]" style="transform: translate(9.846154px, 5.361576px);"></div>
+<div class="atmospheric-orb bottom-[-250px] right-[-150px]" style="transform: translate(19.692308px, 10.723153px);"></div>
+<!-- Top AppBar -->
+<header class="fixed top-6 left-6 right-6 z-50 flex items-center justify-between pointer-events-none">
+<button class="pointer-events-auto glass-button w-12 h-12 flex items-center justify-center rounded-full transition-all active:scale-95 text-primary">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<button class="pointer-events-auto glass-button w-12 h-12 flex items-center justify-center rounded-full transition-all active:scale-95 text-primary">
+<span class="material-symbols-outlined">search</span>
+</button>
+</header>
+<main class="px-floating-margin pt-24 max-w-[500px] mx-auto min-h-screen flex flex-col gap-8">
+<!-- Title Section -->
+<!-- List Content -->
+<div class="flex flex-col gap-10">
+<!-- Group: Сегодня -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="font-label-caps text-label-caps text-primary/70 tracking-widest uppercase">Сегодня</h2>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+<div class="space-y-stack-space">
+<!-- Word Card 1 -->
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between transition-all duration-300 hover:scale-[1.01] active:scale-[0.98] group" style="transform: scale(1);">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Draft</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Сущ.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Черновик, проект документа</p>
+</div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-white/40 transition-all">
+<span class="material-symbols-outlined">volume_up</span>
+</button>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+<!-- Word Card 2 -->
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between transition-all duration-300 hover:scale-[1.01] active:scale-[0.98] group" style="transform: scale(1);">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Perspective</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Сущ.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Перспектива, точка зрения</p>
+</div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-white/40 transition-all">
+<span class="material-symbols-outlined">volume_up</span>
+</button>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+</div>
+</section>
+<!-- Group: Вчера -->
+<section class="space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="font-label-caps text-label-caps text-primary/70 tracking-widest uppercase">Вчера</h2>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+<div class="space-y-stack-space">
+<!-- Word Card 3 -->
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between transition-all duration-300 hover:scale-[1.01] active:scale-[0.98] group" style="transform: scale(1);">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Liquid</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Прил.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Жидкий, прозрачный, плавный</p>
+</div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-white/40 transition-all">
+<span class="material-symbols-outlined">volume_up</span>
+</button>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+<!-- Word Card 4 -->
+<div class="glass-card p-container-padding rounded-[28px] flex items-center justify-between transition-all duration-300 hover:scale-[1.01] active:scale-[0.98] group" style="transform: scale(1);">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<h3 class="font-body-lg text-body-lg font-bold text-primary">Ethereal</h3>
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-[10px] text-primary uppercase font-bold tracking-wider">Прил.</span>
+</div>
+<p class="font-body-md text-body-md text-on-surface-variant">Эфирный, небесный, легкий</p>
+</div>
+<button class="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-white/40 transition-all">
+<span class="material-symbols-outlined">volume_up</span>
+</button>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/30 text-on-surface-variant">
+<span class="material-symbols-outlined text-[20px]">sort_by_alpha</span>
+</button>
+</div></div>
+</div>
+</section>
+</div>
+<!-- Decorative Bottom Icon -->
+<div class="mt-8 flex justify-center pb-8">
+</div>
+</main>
+<script>
+    // Parallax for background orbs
+    document.addEventListener('mousemove', (e) => {
+        const orbs = document.querySelectorAll('.atmospheric-orb');
+        const x = (e.clientX / window.innerWidth) * 30;
+        const y = (e.clientY / window.innerHeight) * 30;
+        
+        orbs.forEach((orb, index) => {
+            const factor = (index + 1) * 0.4;
+            orb.style.transform = `translate(${x * factor}px, ${y * factor}px)`;
+        });
+    });
+
+    // Simple micro-interaction for active states
+    document.querySelectorAll('.glass-card').forEach(card => {
+        card.addEventListener('mousedown', () => {
+            card.style.transform = 'scale(0.98)';
+        });
+        card.addEventListener('mouseup', () => {
+            card.style.transform = 'scale(1.01)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'scale(1)';
+        });
+    });
+</script>
+</body></html>
