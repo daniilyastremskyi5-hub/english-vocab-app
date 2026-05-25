@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
-import { LIGHT_BREAKDOWN_PROMPT, FULL_BREAKDOWN_PROMPT, SENTENCE_BREAKDOWN_PROMPT } from "./-prompts";
+import { LIGHT_BREAKDOWN_PROMPT, FULL_BREAKDOWN_PROMPT, SENTENCE_BREAKDOWN_PROMPT, CHAT_PROMPT } from "./-prompts";
 
 function cleanAndParseJson(text: string): any {
   let cleaned = text.trim();
@@ -29,16 +29,17 @@ export const Route = createFileRoute("/api/ai-breakdown")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        let { input, mode, canonical, pos, type } = (await request.json()) as { 
+        let { input, mode, canonical, pos, type, messages } = (await request.json()) as { 
           input?: string; 
-          mode: "light" | "full" | "sentence";
+          mode: "light" | "full" | "sentence" | "chat";
           canonical?: string;
           pos?: string;
           type?: string;
+          messages?: Array<{ role: "user" | "assistant"; content: string }>;
         };
         
         mode = mode || "light";
-        const model = mode === "sentence" ? "claude-haiku-4-5-20251001" : "claude-sonnet-4-6";
+        const model = mode === "chat" ? "claude-haiku-4-5" : "claude-sonnet-4-6";
         const apiKey = process.env.ANTHROPIC_API_KEY;
         console.log(`[AI-Breakdown] Request received. Mode: "${mode}", Input: "${input || ''}", Canonical: "${canonical || ''}"`);
         console.log(`[AI-Breakdown] process.env.SUPABASE_URL: "${process.env.SUPABASE_URL || ''}"`);
@@ -302,6 +303,87 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                   content: `Предложение: "${rawInput}"`,
                 },
               ],
+            }),
+          });
+
+          if (!upstream.ok || !upstream.body) {
+            const text = await upstream.text();
+            console.error("Anthropic API error:", text);
+            return new Response(text || "Anthropic API error", { status: upstream.status || 500 });
+          }
+
+          const stream = new ReadableStream({
+            async start(controller) {
+              const reader = upstream.body!.getReader();
+              const decoder = new TextDecoder();
+              const encoder = new TextEncoder();
+              let buffer = "";
+              
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  buffer += decoder.decode(value, { stream: true });
+                  const lines = buffer.split("\n");
+                  buffer = lines.pop() || "";
+                  
+                  for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed.startsWith("data:")) continue;
+                    const dataStr = trimmed.slice(5).trim();
+                    if (!dataStr) continue;
+                    
+                    try {
+                      const json = JSON.parse(dataStr);
+                      if (json?.type === "content_block_delta" && json?.delta?.type === "text_delta" && json?.delta?.text) {
+                        controller.enqueue(encoder.encode(json.delta.text));
+                      }
+                    } catch {}
+                  }
+                }
+              } catch (err) {
+                controller.error(err);
+                return;
+              }
+              controller.close();
+            }
+          });
+
+          const streamHeaders: Record<string, string> = {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+          };
+          return new Response(stream, { headers: streamHeaders });
+        } else if (mode === "chat") {
+          if (!messages || !Array.isArray(messages)) {
+            return new Response("Missing messages for chat mode", { status: 400 });
+          }
+
+          console.log(`[AI-Breakdown] Running chat mode breakdown with ${messages.length} messages.`);
+
+          const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "anthropic-beta": "extended-cache-ttl-2025-04-11",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: 1024,
+              stream: true,
+              system: [
+                {
+                  type: "text",
+                  text: CHAT_PROMPT,
+                  cache_control: { type: "ephemeral", ttl: "1h" },
+                },
+              ],
+              messages: messages.map(m => ({
+                role: m.role,
+                content: m.content
+              })),
             }),
           });
 

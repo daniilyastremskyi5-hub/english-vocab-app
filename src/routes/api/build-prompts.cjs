@@ -3,6 +3,7 @@ const path = require('path');
 
 const lightPath = path.join(__dirname, '../../../prompt_wordbreaker.md');
 const sentencePath = path.join(__dirname, '../../../prompt_sentence_1.md');
+const chatPath = path.join(__dirname, '../../../prompt_chat.md');
 const outputPath = path.join(__dirname, './-prompts.ts');
 
 function escapePrompt(content) {
@@ -19,6 +20,7 @@ try {
   console.log('Reading prompts...');
   const lightContent = fs.readFileSync(lightPath, 'utf8');
   const sentenceContent = fs.readFileSync(sentencePath, 'utf8');
+  const chatContent = fs.readFileSync(chatPath, 'utf8');
 
   // Format content to extract the inner block of prompt content (between the first ``` and the last ``` if present)
   function extractInner(text) {
@@ -42,6 +44,7 @@ try {
 
   const cleanLight = extractInner(lightContent);
   const cleanSentence = extractInner(sentenceContent);
+  const cleanChat = extractInner(chatContent);
 
   const fileContent = `// src/routes/api/-prompts.ts
 // Generated automatically from prompt markdown files. Do not edit directly.
@@ -51,6 +54,8 @@ export const LIGHT_BREAKDOWN_PROMPT = \`${escapePrompt(cleanLight)}\`;
 export const FULL_BREAKDOWN_PROMPT = \`\`;
 
 export const SENTENCE_BREAKDOWN_PROMPT = \`${escapePrompt(cleanSentence)}\`;
+
+export const CHAT_PROMPT = \`${escapePrompt(cleanChat)}\`;
 `;
 
   fs.writeFileSync(outputPath, fileContent, 'utf8');

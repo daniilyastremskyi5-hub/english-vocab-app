@@ -1,9 +1,135 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, useRef, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { speakText } from "@/lib/speakText";
 import "../lev-nikol.css";
+import {
+  escapeHtml,
+  parseMarkdown,
+  star,
+  renderSoundButton,
+  getCardWidgetState,
+  saveCardWidgetState,
+  tryExtract,
+  renderStage1,
+  parsePillarMarkdown,
+  parseInlineMarkdown,
+  tryRepairJson,
+  widgetHtml,
+  getCachedType,
+  renderRecommendationCard,
+  renderExamples,
+  renderTip,
+  renderContextsBlock,
+  renderCollocationsBlock,
+  getWordFromBreakdown,
+  getTranslationFromBreakdown,
+  getPosFromBreakdown,
+  wrapHtmlInWordCard,
+  renderPillBreakdown,
+  renderSentence,
+  renderRuMap,
+  renderContext
+} from "@/lib/breakdownRenderers";
+
+interface BreakdownMessageProps {
+  word: string;
+  breakdownData: any;
+  isLoading?: boolean;
+  domHandlersRef: React.RefObject<{
+    updatePillBreakdownDOM: (wrap: HTMLElement, data: any, isStreaming: boolean) => void;
+    attachWidgetToggles: (root?: HTMLElement) => void;
+    attachChips: (root?: HTMLElement) => void;
+    attachDeepDiveHandlers: (root?: HTMLElement) => void;
+    renderUnifiedBreakdown: (obj: any, wrapInCard?: boolean) => string;
+  } | null>;
+  lang?: string;
+  wordsList?: any[];
+  historyList?: any[];
+}
+
+function BreakdownMessage({
+  word,
+  breakdownData,
+  isLoading = false,
+  domHandlersRef,
+  lang = "ru",
+  wordsList = [],
+  historyList = []
+}: BreakdownMessageProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const initializedRef = useRef<boolean>(false);
+  const prevModeRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const handlers = domHandlersRef.current;
+    if (!handlers) return;
+
+    const mode = breakdownData?.mode || (isLoading ? "loading" : "word");
+
+    // Full draw if unitialized or mode has changed
+    if (!initializedRef.current || prevModeRef.current !== mode) {
+      initializedRef.current = true;
+      prevModeRef.current = mode;
+
+      if (isLoading) {
+        el.innerHTML = wrapHtmlInWordCard(
+          `<div class="breakdown-wrap wc-loading" data-word-json="">${renderPillBreakdown(null, true)}</div>`,
+          null,
+          word,
+          true,
+          lang
+        );
+      } else if (breakdownData) {
+        if (mode === "correction" || (breakdownData.message && breakdownData.suggestions)) {
+          const suggestionsHtml = Array.isArray(breakdownData.suggestions) && breakdownData.suggestions.length
+            ? `
+              <div class="suggest-title" style="margin-top: 16px; font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">Возможно, ты имел в виду:</div>
+              <div class="chips" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                ${breakdownData.suggestions.map((s: string) => `<button class="chip" data-word="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join("")}
+              </div>
+            `
+            : "";
+          el.innerHTML = `
+            <div class="correction-card fade-up">
+              <div class="correction-message">${parseMarkdown(breakdownData.message || "")}</div>
+              ${suggestionsHtml}
+            </div>
+          `;
+          if (handlers.attachChips) handlers.attachChips(el);
+        } else {
+          el.innerHTML = handlers.renderUnifiedBreakdown(breakdownData, true);
+          
+          if (mode === "word") {
+            const wrap = el.querySelector(".breakdown-wrap") as HTMLElement | null;
+            if (wrap) {
+              handlers.updatePillBreakdownDOM(wrap, breakdownData, false);
+            }
+          } else {
+            if (handlers.attachWidgetToggles) handlers.attachWidgetToggles(el);
+            if (handlers.attachChips) handlers.attachChips(el);
+          }
+        }
+      }
+      return;
+    }
+
+    // Streaming updates for standard word mode
+    if (mode === "word" && breakdownData && !isLoading) {
+      const wrap = el.querySelector(".breakdown-wrap") as HTMLElement | null;
+      if (wrap) {
+        handlers.updatePillBreakdownDOM(wrap, breakdownData, false);
+      }
+    }
+  }, [word, breakdownData, isLoading, domHandlersRef, lang, wordsList, historyList]);
+
+  return <div ref={containerRef} className="chat-breakdown-message-wrapper" style={{ width: "100%" }} />;
+}
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -20,6 +146,271 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const [messages, setMessages] = useState<Array<{
+    role: "user" | "assistant";
+    content: string;
+    id: string;
+    type?: "breakdown";
+    word?: string;
+    breakdownData?: any;
+    isLoading?: boolean;
+  }>>([]);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [activePage, setActivePage] = useState<string>("breakdown");
+  const [breakdownActive, setBreakdownActive] = useState(false);
+  const [showChatHistoryPanel, setShowChatHistoryPanel] = useState(false);
+  const [activeAccordion, setActiveAccordion] = useState<{
+    notebook: boolean;
+    projects: boolean;
+    history: boolean;
+  }>({
+    notebook: false,
+    projects: false,
+    history: true
+  });
+  const [pastChats, setPastChats] = useState<Array<{ id: string; title: string; messages: Array<any> }>>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = localStorage.getItem("ln_chat_history");
+        return stored ? JSON.parse(stored) : [];
+      } catch (e) {
+        console.error("Error reading chat history:", e);
+      }
+    }
+    return [];
+  });
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const chatMessagesRef = useRef<HTMLDivElement>(null);
+  const domHandlersRef = useRef<any>(null);
+
+  const messagesRef = useRef(messages);
+  const activeChatIdRef = useRef(activeChatId);
+  const isGeneratingRef = useRef(isGenerating);
+  const pastChatsRef = useRef(pastChats);
+  const switchPageRef = useRef<(name: string) => void>(() => {});
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    isGeneratingRef.current = isGenerating;
+  }, [isGenerating]);
+
+  useEffect(() => {
+    pastChatsRef.current = pastChats;
+  }, [pastChats]);
+
+  useEffect(() => {
+    if (chatMessagesRef.current) {
+      chatMessagesRef.current.scrollTop = chatMessagesRef.current.scrollHeight;
+    }
+  }, [messages, isGenerating]);
+
+  const sendMessage = async (userText: string) => {
+    const trimmed = userText.trim();
+    if (!trimmed || isGeneratingRef.current) return;
+    
+    const newMsgId = `msg_${Date.now()}`;
+    const userMessage = { role: "user" as const, content: trimmed, id: newMsgId };
+    
+    const currentMessages = messagesRef.current;
+    const updatedMessages = [...currentMessages, userMessage];
+    
+    setMessages(updatedMessages);
+    setIsGenerating(true);
+
+    const botMsgId = `msg_${Date.now() + 1}`;
+    setMessages(prev => [...prev, { role: "assistant" as const, content: "", id: botMsgId }]);
+
+    try {
+      const resp = await fetch("/api/ai-breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "chat",
+          messages: updatedMessages
+        }),
+      });
+
+      if (!resp.ok || !resp.body) {
+        throw new Error("Chat error");
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let streamTargetText = "";
+      let printedText = "";
+      let streamDone = false;
+      let typewriterIntervalId: any = null;
+
+      // Start typewriter loop
+      const runTypewriter = new Promise<void>((resolve) => {
+        typewriterIntervalId = setInterval(() => {
+          if (printedText.length < streamTargetText.length) {
+            const diff = streamTargetText.length - printedText.length;
+            let charsToAdd = 1;
+            if (diff > 50) charsToAdd = 6;
+            else if (diff > 20) charsToAdd = 3;
+            else if (diff > 5) charsToAdd = 2;
+
+            // Ensure we don't slice a high surrogate pair (e.g. emojis)
+            const targetIndex = printedText.length + charsToAdd;
+            const lastChar = streamTargetText.charAt(targetIndex - 1);
+            const code = lastChar ? lastChar.charCodeAt(0) : 0;
+            const extraChar = (code >= 0xD800 && code <= 0xDBFF) ? 1 : 0;
+
+            printedText += streamTargetText.slice(printedText.length, targetIndex + extraChar);
+            
+            setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, content: printedText } : m));
+          } else if (streamDone) {
+            clearInterval(typewriterIntervalId);
+            resolve();
+          }
+        }, 15);
+      });
+
+      // Stream reader loop
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            streamDone = true;
+            break;
+          }
+          const chunk = decoder.decode(value, { stream: true });
+          streamTargetText += chunk;
+        }
+
+        // Wait for typewriter to finish printing the buffer
+        await runTypewriter;
+
+        saveCurrentChat([...updatedMessages, { role: "assistant" as const, content: streamTargetText, id: botMsgId }]);
+      } catch (err) {
+        if (typewriterIntervalId) clearInterval(typewriterIntervalId);
+        throw err;
+      }
+    } catch (err) {
+      console.error("Chat error:", err);
+      setMessages(prev => {
+        return prev.map(m => m.id === botMsgId ? { ...m, content: "Ошибка при получении ответа. Попробуйте еще раз." } : m);
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handleNewChat = () => {
+    const currentMessages = messagesRef.current;
+    const currentActiveChatId = activeChatIdRef.current;
+    const currentPastChats = pastChatsRef.current;
+
+    if (currentMessages.length > 0) {
+      const chatSessionId = currentActiveChatId || `chat_${Date.now()}`;
+      const existingIndex = currentPastChats.findIndex(c => c.id === chatSessionId);
+      
+      const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
+      const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
+      
+      let updated = [...currentPastChats];
+      if (existingIndex !== -1) {
+        updated[existingIndex] = {
+          id: chatSessionId,
+          title: updated[existingIndex].title,
+          messages: currentMessages
+        };
+      } else {
+        updated.unshift({
+          id: chatSessionId,
+          title: title,
+          messages: currentMessages
+        });
+      }
+      
+      setPastChats(updated);
+      localStorage.setItem("ln_chat_history", JSON.stringify(updated));
+    }
+    
+    setMessages([]);
+    setActiveChatId(null);
+    setBreakdownActive(false);
+  };
+
+  const handleLoadChat = (chat: { id: string; title: string; messages: Array<any> }) => {
+    const currentMessages = messagesRef.current;
+    const currentActiveChatId = activeChatIdRef.current;
+    const currentPastChats = pastChatsRef.current;
+
+    if (currentMessages.length > 0 && currentActiveChatId !== chat.id) {
+      const chatSessionId = currentActiveChatId || `chat_${Date.now()}`;
+      const existingIndex = currentPastChats.findIndex(c => c.id === chatSessionId);
+      const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
+      const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
+      
+      let updated = [...currentPastChats];
+      if (existingIndex !== -1) {
+        updated[existingIndex] = { id: chatSessionId, title: updated[existingIndex].title, messages: currentMessages };
+      } else {
+        updated.unshift({ id: chatSessionId, title, messages: currentMessages });
+      }
+      setPastChats(updated);
+      localStorage.setItem("ln_chat_history", JSON.stringify(updated));
+    }
+
+    setMessages(chat.messages);
+    setActiveChatId(chat.id);
+    setBreakdownActive(false);
+  };
+
+  const saveCurrentChat = (currentMessages: Array<any>) => {
+    if (currentMessages.length === 0) return;
+    const currentActiveChatId = activeChatIdRef.current || `chat_${Date.now()}`;
+    const currentPastChats = pastChatsRef.current;
+
+    const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
+    const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
+
+    let updated = [...currentPastChats];
+    const existingIndex = updated.findIndex(c => c.id === currentActiveChatId);
+    if (existingIndex !== -1) {
+      updated[existingIndex] = {
+        id: currentActiveChatId,
+        title: updated[existingIndex].title,
+        messages: currentMessages
+      };
+    } else {
+      updated.unshift({
+        id: currentActiveChatId,
+        title: title,
+        messages: currentMessages
+      });
+      if (!activeChatIdRef.current) {
+        setActiveChatId(currentActiveChatId);
+      }
+    }
+
+    setPastChats(updated);
+    localStorage.setItem("ln_chat_history", JSON.stringify(updated));
+  };
+
+  const updateMessageBreakdownData = (canonical: string, combinedData: any) => {
+    setMessages(prev => {
+      const updated = prev.map(m => {
+        if (m.type === "breakdown" && m.word?.toLowerCase() === canonical.toLowerCase()) {
+          return { ...m, breakdownData: combinedData };
+        }
+        return m;
+      });
+      setTimeout(() => saveCurrentChat(updated), 50);
+      return updated;
+    });
+  };
+
+
   useEffect(() => {
     document.body.classList.add("ln-body");
     const handleSoundClick = (e: MouseEvent) => {
@@ -213,11 +604,6 @@ function Index() {
       for (let i = 0; i < 3; i++) s += i < n ? "★" : '<span class="empty">★</span>';
       return s;
     }
-    function escapeHtml(s: unknown) {
-      return String(s || "").replace(/[&<>"']/g, (c) =>
-        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string),
-      );
-    }
 
     function renderSoundButton(text?: string) {
       if (!text) return "";
@@ -286,56 +672,6 @@ function Index() {
         html += `</div>`;
       }
       return html;
-    }
-
-    function parseMarkdown(text: string): string {
-      if (!text) return "";
-
-      // Split on double newlines into paragraphs; single newlines treated as <br> within a para
-      const rawParas = text.split(/\n{2,}/);
-
-      const processedParas = rawParas.map((para) => {
-        // Detect blockquote / example block (lines starting with "> ")
-        const lines = para.split("\n");
-        const isExampleBlock = lines.every((l) => l.trimStart().startsWith(">"));
-        if (isExampleBlock) {
-          const innerLines = lines.map((l) => l.trimStart().replace(/^>\s?/, ""));
-          const innerHtml = innerLines
-            .map((l) => {
-              let h = escapeHtml(l);
-              h = h.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-              h = h.replace(/__(.*?)__/g, "<strong>$1</strong>");
-              h = h.replace(/\*(.*?)\*/g, "<em>$1</em>");
-              h = h.replace(/_(.*?)_/g, "<em>$1</em>");
-              h = h.replace(/`(.*?)`/g, '<span class="en-chip">$1</span>');
-              return `<p>${h}</p>`;
-            })
-            .join("");
-          return `<div class="md-example-block">${innerHtml}</div>`;
-        }
-
-        // Normal paragraph
-        let html = escapeHtml(para);
-        html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-        html = html.replace(/__(.*?)__/g, "<strong>$1</strong>");
-        html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
-        html = html.replace(/_(.*?)_/g, "<em>$1</em>");
-        // Backtick text → inline glass pill chip
-        html = html.replace(/`(.*?)`/g, '<span class="en-chip">$1</span>');
-        // Single newlines within a paragraph → <br>
-        html = html.replace(/\n/g, "<br>");
-        // Verdict block: a line starting with ВЕРДИКТ[:]
-        html = html.replace(
-          /(<br>|^)ВЕРДИКТ[:\s]*([\s\S]*?)(?=<br>|$)/gi,
-          (_m: string, pre: string, content: string) => {
-            const clean = content.replace(/^[\s:]+/, "").trim();
-            return `${pre}<span class="verdict-block"><span class="verdict-badge">ВЕРДИКТ</span><span class="verdict-text">${clean}</span></span>`;
-          }
-        );
-        return `<p>${html}</p>`;
-      });
-
-      return processedParas.join("");
     }
 
     function parsePillarMarkdown(text: string): string {
@@ -1960,6 +2296,8 @@ function Index() {
           const trans = lightDataObj?.wave1?.content ? lightDataObj.wave1.content.split("\n")[0] : "";
           await addHistory({ word: canonical, translation: trans, mode: "full_json" }, combined);
           
+          updateMessageBreakdownData(canonical, combined);
+          
           const existingSaved = wordsList.find((w) => w.word.toLowerCase() === canonical.toLowerCase());
           if (existingSaved) {
             existingSaved.breakdown = combined;
@@ -2120,7 +2458,7 @@ function Index() {
     // ===== i18n =====
     const I18N: Record<string, Record<string, string>> = {
       ru: {
-        "nav.breakdown": "Разбор",
+        "nav.breakdown": "Чат",
         "nav.library": "Мои слова",
         "nav.history": "История разборов",
         "nav.top": "Топ слов",
@@ -2157,7 +2495,7 @@ function Index() {
         "badge.sentence": "Фраза",
       },
       en: {
-        "nav.breakdown": "Breakdown",
+        "nav.breakdown": "Chat",
         "nav.library": "My words",
         "nav.history": "History",
         "nav.top": "Top words",
@@ -3254,6 +3592,7 @@ function Index() {
     }
 
     function switchPage(name: string) {
+      setActivePage(name);
       document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
       const pg = document.getElementById("page-" + name);
       if (pg) pg.classList.add("active");
@@ -3399,15 +3738,23 @@ function Index() {
       busy = true;
       goBtn!.disabled = true;
       
-      let lightData: any = null;
+      const userMsgId = `msg_${Date.now()}`;
+      const userMsg = { role: "user" as const, content: q, id: userMsgId };
+      const botMsgId = `msg_${Date.now() + 1}`;
+      const botMsg = {
+        role: "assistant" as const,
+        content: "",
+        id: botMsgId,
+        type: "breakdown" as const,
+        word: q,
+        breakdownData: null,
+        isLoading: true
+      };
 
-      loading!.style.display = "none";
-      // Show tabs skeleton inside wrapped card
-      results!.innerHTML = wrapHtmlInWordCard(`<div class="breakdown-wrap wc-loading" data-word-json="">${renderPillBreakdown(null, true)}</div>`, null, q, true);
-      searchWrap!.classList.add("compact");
+      const updatedMessages = [...messagesRef.current, userMsg, botMsg];
+      setMessages(updatedMessages);
 
       try {
-        let activeTabSet = false;
         let finalData: any = null;
 
         await fetchStream({ input: q, mode: "light" }, (accumulated, isFinished) => {
@@ -3418,37 +3765,31 @@ function Index() {
           } catch {}
 
           if (parsed && typeof parsed === "object") {
+            setMessages(prev => {
+              const updated = prev.map(m => m.id === botMsgId ? {
+                ...m,
+                breakdownData: parsed,
+                isLoading: !isFinished
+              } : m);
+              if (isFinished) {
+                setTimeout(() => saveCurrentChat(updated), 50);
+              }
+              return updated;
+            });
+
             // 1. Correction mode
             if (parsed.mode === "correction" || (parsed.message && parsed.suggestions)) {
               if (isFinished) {
-                const suggestionsHtml = Array.isArray(parsed.suggestions) && parsed.suggestions.length
-                  ? `
-                    <div class="suggest-title" style="margin-top: 16px; font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">Возможно, ты имел в виду:</div>
-                    <div class="chips" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                      ${parsed.suggestions.map((s: string) => `<button class="chip" data-word="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join("")}
-                    </div>
-                  `
-                  : "";
-                results!.innerHTML = `
-                  <div class="correction-card fade-up">
-                    <div class="correction-message">${parseMarkdown(parsed.message || "")}</div>
-                    ${suggestionsHtml}
-                  </div>
-                `;
-                attachChips();
                 busy = false;
                 goBtn!.disabled = false;
               }
               return;
             }
 
-            // 2. Sentence mode (keep standard streaming flow for sentences)
+            // 2. Sentence mode
             if (parsed.mode === "sentence") {
               if (isFinished) {
                 parsed.sentence = parsed.sentence || q;
-                results!.innerHTML = renderSentence(parsed, false);
-                attachWidgetToggles(results!);
-                attachChips();
                 lastBreakdown = parsed;
 
                 const mainTrans = parsed.translation?.main || "";
@@ -3464,14 +3805,6 @@ function Index() {
             // 3. Standard Word Mode
             if (parsed.pillars && Array.isArray(parsed.pillars) && parsed.pillars.length > 0) {
               finalData = parsed;
-              const wrap = results!.querySelector(".breakdown-wrap") as HTMLElement | null;
-              if (wrap) {
-                if (!activeTabSet) {
-                  activeTab = parsed.pillars[0].key || "translation";
-                  activeTabSet = true;
-                }
-                updatePillBreakdownDOM(wrap, parsed, !isFinished);
-              }
             }
           }
 
@@ -3481,11 +3814,6 @@ function Index() {
               const trans = getTranslationFromBreakdown(finalData);
               lastLightData = finalData;
               lastBreakdown = finalData;
-
-              const wrap = results!.querySelector(".breakdown-wrap") as HTMLElement | null;
-              if (wrap) {
-                updatePillBreakdownDOM(wrap, finalData, false);
-              }
 
               // Only add if not already in history
               const alreadyInHistory = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase());
@@ -3503,7 +3831,13 @@ function Index() {
         });
       } catch (err) {
         console.error("Word breakdown failed:", err);
-        results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
+        setMessages(prev => {
+          return prev.map(m => m.id === botMsgId ? {
+            ...m,
+            isLoading: false,
+            content: "Ошибка при получении ответа. Попробуйте еще раз."
+          } : m);
+        });
       } finally {
         busy = false;
         goBtn!.disabled = false;
@@ -3516,18 +3850,60 @@ function Index() {
     };
     form.addEventListener("submit", onSubmit);
 
-    // Expose breakdown trigger so the AI assistant can call it from the chat sidebar.
+    function shouldRunBreakdown(q: string): boolean {
+      const clean = q.trim().toLowerCase();
+      const words = clean.split(/[\s,?!.\-\"\'\)\(\[\]]+/);
+      
+      // If it's a question or chat prompt, we don't run breakdown
+      const questionWords = [
+        "what", "how", "why", "who", "which", "where", "when",
+        "что", "как", "почему", "кто", "где", "когда", "зачем", "чтобы", "значит",
+        "перевод", "переведи", "подскажи", "посоветуй", "расскажи", "объясни"
+      ];
+      
+      const hasQuestionWord = words.some(w => questionWords.includes(w));
+      if (hasQuestionWord) {
+        return false;
+      }
+
+      // If it contains Cyrillic characters, it's probably Russian chat/question
+      const hasCyrillic = /[а-яА-ЯёЁ]/.test(clean);
+      if (hasCyrillic) {
+        return false;
+      }
+
+      // If it's English only, and within 1-5 words, it is a word or phrase breakdown request
+      const isEnglishOnly = /^[a-zA-Z\s\-']+[?!.]*$/.test(clean);
+      if (isEnglishOnly && words.length > 0 && words.length <= 5) {
+        return true;
+      }
+
+      return false;
+    }
+
     const runFromAssistant = (q: string, ctx?: string) => {
       if (!q) return;
-      input.value = q;
-      const ctxEl = document.getElementById("contextInput") as HTMLInputElement | null;
-      if (ctxEl) ctxEl.value = ctx || "";
-      // Make sure we're on the breakdown page so #results is visible.
       const breakdownNav = document.querySelector<HTMLElement>('.side-item[data-page="breakdown"]');
       if (breakdownNav && !document.getElementById("page-breakdown")?.classList.contains("active")) {
-        breakdownNav.click();
+        const p = breakdownNav.getAttribute("data-page");
+        if (p) switchPage(p);
       }
-      run();
+      
+      const cleanQ = q.trim();
+
+      if (shouldRunBreakdown(cleanQ)) {
+        if (input) {
+          input.value = cleanQ;
+          const ctxEl = document.getElementById("contextInput") as HTMLInputElement | null;
+          if (ctxEl) {
+            ctxEl.value = ctx || "";
+          }
+          run();
+        }
+      } else {
+        setBreakdownActive(false);
+        sendMessage(cleanQ);
+      }
     };
     (window as unknown as { __lnRunBreakdown?: (q: string, ctx?: string) => void }).__lnRunBreakdown =
       runFromAssistant;
@@ -3667,10 +4043,31 @@ function Index() {
       refreshCloudAndRender();
     });
 
+    const handleDocClickCloseOverlay = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const panel = document.querySelector(".chat-history-navigation-panel");
+      const trigger = document.querySelector(".chat-history-trigger");
+      if (panel && !panel.contains(target) && !trigger?.contains(target)) {
+        setShowChatHistoryPanel(false);
+      }
+    };
+    document.addEventListener("click", handleDocClickCloseOverlay);
+
+    domHandlersRef.current = {
+      updatePillBreakdownDOM,
+      attachWidgetToggles,
+      attachChips,
+      attachDeepDiveHandlers,
+      renderUnifiedBreakdown
+    };
+
+    switchPageRef.current = switchPage;
+
     return () => {
       form.removeEventListener("submit", onSubmit);
       document.removeEventListener("click", onDocClickClose);
       document.removeEventListener("click", onDocClickCloseSearch);
+      document.removeEventListener("click", handleDocClickCloseOverlay);
       authSub.subscription.unsubscribe();
       delete (window as unknown as { __lnRunBreakdown?: unknown }).__lnRunBreakdown;
       delete (window as unknown as { __lnResetBreakdown?: unknown }).__lnResetBreakdown;
@@ -3685,28 +4082,305 @@ function Index() {
           <span className="material-symbols-outlined">menu</span>
         </button>
 
-        {/* Animated Search Bar */}
-        <div className="app-bar-search" id="appBarSearch" style={{ display: "none" }}>
-          <input
-            type="text"
-            id="appBarSearchInput"
-            placeholder="Поиск..."
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <div className="search-icon" id="appBarSearchIcon">
-            <span className="material-symbols-outlined">search</span>
+        {/* Right-hand side action container */}
+        <div className="app-bar-actions-container" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          
+          {/* Standalone New Chat Button for Chat, Top Words, Account pages */}
+          <button
+            id="standaloneNewChatBtn"
+            className="glass-button"
+            title="Новый чат"
+            onClick={() => {
+              handleNewChat();
+              switchPageRef.current("breakdown");
+            }}
+            type="button"
+            style={{
+              width: "48px",
+              height: "48px",
+              borderRadius: "24px",
+              display: (activePage === "breakdown" || activePage === "top" || activePage === "account") ? "flex" : "none",
+              alignItems: "center",
+              justifyContent: "center"
+            }}
+          >
+            <span className="material-symbols-outlined">rate_review</span>
+          </button>
+
+          {/* Combined Glass Shell for pages with Search (Library and History) */}
+          <div
+            id="combinedGlassShell"
+            className="glass-card"
+            style={{
+              display: (activePage === "library" || activePage === "history") ? "flex" : "none",
+              alignItems: "center",
+              padding: "4px 8px 4px 4px",
+              borderRadius: "28px",
+              gap: "8px",
+              backdropFilter: "blur(12px)",
+              background: "var(--glass-fill-strong)",
+              border: "1px solid var(--glass-border-btn)",
+              boxShadow: "var(--glass-shadow-btn)",
+              height: "48px"
+            }}
+          >
+            {/* Animated Search Bar (always present for search listeners) */}
+            <div
+              className="app-bar-search"
+              id="appBarSearch"
+              style={{
+                display: "flex",
+                background: "transparent",
+                border: "none",
+                boxShadow: "none",
+                backdropFilter: "none",
+                height: "100%",
+                padding: 0,
+                margin: 0
+              }}
+            >
+              <input
+                type="text"
+                id="appBarSearchInput"
+                placeholder="Поиск..."
+                autoComplete="off"
+                spellCheck={false}
+                style={{ height: "100%" }}
+              />
+              <div className="search-icon" id="appBarSearchIcon" style={{ height: "40px", width: "40px" }}>
+                <span className="material-symbols-outlined">search</span>
+              </div>
+            </div>
+
+            {/* Divider line */}
+            <div style={{ width: "1px", height: "24px", background: "rgba(255,255,255,0.4)" }} />
+
+            {/* New Chat Button inside the same shell */}
+            <button
+              className="flex items-center justify-center text-primary transition-all active:scale-90"
+              title="Новый чат"
+              onClick={() => {
+                handleNewChat();
+                switchPageRef.current("breakdown");
+              }}
+              type="button"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                color: "var(--ll-primary)"
+              }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: "20px" }}>rate_review</span>
+            </button>
           </div>
         </div>
       </div>
 
       {/* ── Navigation Drawer ── */}
       <aside className="sidebar glass-panel" id="sidebar">
-        <nav>
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px", justifyContent: "center" }}>
           <button className="side-item active" data-page="breakdown" type="button">
-            <span className="ic material-symbols-outlined">translate</span>
-            <span data-i18n="nav.breakdown">Разбор слова</span>
+            <span className="ic material-symbols-outlined">chat</span>
+            <span data-i18n="nav.breakdown">Чат</span>
           </button>
+
+          {/* История чатов trigger button */}
+          <button
+            className={`side-item chat-history-trigger ${showChatHistoryPanel ? "active" : ""}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowChatHistoryPanel(!showChatHistoryPanel);
+            }}
+          >
+            <span className="ic material-symbols-outlined">forum</span>
+            <span>История чатов</span>
+            <span 
+              className="material-symbols-outlined" 
+              style={{ 
+                marginLeft: "auto", 
+                fontSize: "18px", 
+                transition: "transform 0.25s ease",
+                transform: showChatHistoryPanel ? "rotate(180deg)" : "rotate(0deg)",
+                color: showChatHistoryPanel ? "var(--ll-primary)" : "var(--ll-outline)"
+              }}
+            >
+              expand_more
+            </span>
+          </button>
+
+          {/* Slide-down chat history inline panel */}
+          <div
+            className="chat-history-navigation-panel"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              overflow: "hidden",
+              transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s ease, padding 0.3s ease, border-color 0.3s ease",
+              maxHeight: showChatHistoryPanel ? "800px" : "0px",
+              marginTop: showChatHistoryPanel ? "4px" : "0px",
+              marginBottom: showChatHistoryPanel ? "8px" : "0px",
+              borderRadius: "20px",
+              background: "rgba(255, 255, 255, 0.18)",
+              border: showChatHistoryPanel ? "1px solid rgba(255, 255, 255, 0.35)" : "1px solid transparent",
+              boxShadow: "inset 0 1px 2px rgba(255, 255, 255, 0.2), 0 8px 24px rgba(48, 89, 185, 0.04)",
+              backdropFilter: "blur(40px)",
+              WebkitBackdropFilter: "blur(40px)",
+              padding: showChatHistoryPanel ? "10px" : "0px 10px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px"
+            }}
+          >
+            {/* 1. Новый чат (direct action button) */}
+            <button
+              className="side-sub-item"
+              onClick={() => {
+                handleNewChat();
+                setShowChatHistoryPanel(false);
+                switchPageRef.current("breakdown");
+              }}
+              type="button"
+            >
+              <span className="ic material-symbols-outlined">add</span>
+              <span style={{ fontWeight: 600, color: "var(--ll-primary)" }}>Новый чат</span>
+            </button>
+
+            {/* 2. Блокнот (Accordion) */}
+            <div className="accordion-section">
+              <button
+                className="side-sub-item"
+                onClick={() => setActiveAccordion(prev => ({ ...prev, notebook: !prev.notebook }))}
+                type="button"
+              >
+                <span className="ic material-symbols-outlined">description</span>
+                <span>Блокнот</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
+                  <span className="chat-overlay-badge">Скоро</span>
+                  <span 
+                    className="material-symbols-outlined"
+                    style={{ 
+                      fontSize: "16px",
+                      transform: activeAccordion.notebook ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                      color: "var(--ll-outline)"
+                    }}
+                  >
+                    expand_more
+                  </span>
+                </div>
+              </button>
+              <div 
+                className="accordion-content"
+                style={{
+                  maxHeight: activeAccordion.notebook ? "100px" : "0px",
+                  overflow: "hidden",
+                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                }}
+              >
+                <div className="accordion-empty-text">Записей пока нет</div>
+              </div>
+            </div>
+
+            {/* 3. Проекты (Accordion) */}
+            <div className="accordion-section">
+              <button
+                className="side-sub-item"
+                onClick={() => setActiveAccordion(prev => ({ ...prev, projects: !prev.projects }))}
+                type="button"
+              >
+                <span className="ic material-symbols-outlined">workspaces</span>
+                <span>Проекты</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
+                  <span className="chat-overlay-badge">Скоро</span>
+                  <span 
+                    className="material-symbols-outlined"
+                    style={{ 
+                      fontSize: "16px",
+                      transform: activeAccordion.projects ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s",
+                      color: "var(--ll-outline)"
+                    }}
+                  >
+                    expand_more
+                  </span>
+                </div>
+              </button>
+              <div 
+                className="accordion-content"
+                style={{
+                  maxHeight: activeAccordion.projects ? "100px" : "0px",
+                  overflow: "hidden",
+                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+                }}
+              >
+                <div className="accordion-empty-text">Проектов пока нет</div>
+              </div>
+            </div>
+
+            {/* 4. История чатов (Accordion - раскрыта по умолчанию) */}
+            <div className="accordion-section">
+              <button
+                className="side-sub-item"
+                onClick={() => setActiveAccordion(prev => ({ ...prev, history: !prev.history }))}
+                type="button"
+              >
+                <span className="ic material-symbols-outlined">history</span>
+                <span>История чатов</span>
+                <span 
+                  className="material-symbols-outlined"
+                  style={{ 
+                    marginLeft: "auto",
+                    fontSize: "16px",
+                    transform: activeAccordion.history ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s",
+                    color: "var(--ll-outline)"
+                  }}
+                >
+                  expand_more
+                </span>
+              </button>
+              <div 
+                className="accordion-content"
+                style={{
+                  maxHeight: activeAccordion.history ? "260px" : "0px",
+                  overflowY: activeAccordion.history ? "auto" : "hidden",
+                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px"
+                }}
+              >
+                {pastChats.length === 0 ? (
+                  <div className="accordion-empty-text italic">История пуста</div>
+                ) : (
+                  pastChats.map((chat) => (
+                    <button
+                      key={chat.id}
+                      onClick={() => {
+                        handleLoadChat(chat);
+                        setShowChatHistoryPanel(false);
+                        switchPageRef.current("breakdown");
+                      }}
+                      className={`side-sub-item-chat ${activeChatId === chat.id ? "active" : ""}`}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: "16px", opacity: 0.7 }}>chat_bubble</span>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {chat.title}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
           <button className="side-item" data-page="library" type="button">
             <span className="ic material-symbols-outlined">book</span>
             <span data-i18n="nav.library">Мои слова</span>
@@ -3733,9 +4407,11 @@ function Index() {
         {/* ── Spacer for fixed app bar ── */}
         <div className="header" />
 
-        {/* ── Breakdown Page ── */}
+        {/* ── Chat Page (replacing breakdown page) ── */}
         <div className="page active" id="page-breakdown">
-          <div className="page-inner">
+          <div className="page-inner" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+            
+            {/* Standard Hidden form & inputs so that existing input listeners do not break */}
             <div className="search-wrap glass-input" id="searchWrap" style={{ display: "none" }} aria-hidden="true">
               <form className="search" id="searchForm" autoComplete="off">
                 <input
@@ -3791,7 +4467,72 @@ function Index() {
               </span>
             </div>
 
-            <div id="results" className="results"></div>
+            <div id="results" className="results" style={{ display: breakdownActive ? "block" : "none" }} aria-hidden={!breakdownActive}></div>
+
+            {/* Premium Chat Messages Area */}
+            <div
+              className="chat-messages-container"
+              ref={chatMessagesRef}
+              style={{
+                display: breakdownActive ? "none" : "flex",
+                flexDirection: "column",
+                gap: "16px",
+                flex: 1,
+                overflowY: "auto",
+                padding: "20px 4px 140px 4px", // safe spacing for bottom global composer
+                scrollBehavior: "smooth"
+              }}
+            >
+              {messages.length === 0 ? (
+                <div className="results-empty-hint" style={{ marginTop: "40px" }}>
+                  <div className="reh-emoji">💬</div>
+                  <div className="reh-title">Твой лингвистический наставник</div>
+                  <div className="reh-sub">
+                    Спроси меня о чём угодно: «почему go home, а не go to home?», «в чём разница между look at и look for?» или пришли предложение на разбор!
+                  </div>
+                </div>
+              ) : (
+                messages.map((msg) => {
+                  if ((msg as any).type === "breakdown") {
+                    return (
+                      <BreakdownMessage
+                        key={msg.id}
+                        word={(msg as any).word || ""}
+                        breakdownData={(msg as any).breakdownData}
+                        isLoading={(msg as any).isLoading}
+                        domHandlersRef={domHandlersRef}
+                        lang="ru"
+                      />
+                    );
+                  }
+                  if (msg.role === "assistant" && !msg.content) {
+                    return null;
+                  }
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`chat-message-bubble ${msg.role === "user" ? "user-bubble" : "bot-bubble"} glass-card fade-up`}
+                      style={{
+                        width: "100%",
+                        borderRadius: "24px",
+                        padding: "20px 24px",
+                        boxSizing: "border-box"
+                      }}
+                    >
+                      <div
+                        className="chat-message-content font-body-md"
+                        style={{
+                          color: "var(--text)",
+                          lineHeight: "1.6"
+                        }}
+                        dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }}
+                      />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
           </div>
         </div>
 

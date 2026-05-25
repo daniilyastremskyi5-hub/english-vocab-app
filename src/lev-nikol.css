@@ -1723,6 +1723,217 @@ body:has(.sidebar-backdrop.open) .m-composer-wrap {
   color: var(--ll-on-surface);
 }
 
+/* ══════════════════════════════════════
+   GLASSMORPHISM CHAT & NAVIGATION OVERLAY
+   ══════════════════════════════════════ */
+
+/* Chat Messages Bubble styling */
+.ln .chat-message-bubble {
+  width: 100% !important;
+  border-radius: 24px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04) !important;
+  line-height: 1.6;
+  font-size: 15px;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+/* User Message: Matching background-blue tinted glass (#a0c4ff) */
+.ln .user-bubble {
+  background: rgba(160, 196, 255, 0.45) !important; /* background blue tinted glass */
+  border: 1px solid rgba(48, 89, 185, 0.25) !important; /* elegant primary blue border */
+}
+
+/* Bot Message: Lighter and neutral glass */
+.ln .bot-bubble {
+  background: rgba(255, 255, 255, 0.55) !important; /* light neutral glass */
+  border: 1px solid rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Chat Markdown Formatting */
+.ln .chat-message-content p {
+  margin: 0 0 12px 0;
+}
+.ln .chat-message-content p:last-child {
+  margin-bottom: 0;
+}
+.ln .chat-message-content em {
+  font-style: italic;
+  color: var(--ll-primary); /* 브랜드 브랜드 컬러 (Brand brand color to highlight examples) */
+  font-weight: 500;
+}
+.ln .chat-message-content strong {
+  font-weight: 700;
+  color: var(--ll-on-surface); /* 선명한 강조 (Clear contrast for conclusions) */
+}
+
+/* Streaming state spinner styling */
+.ln .chat-message-bubble.streaming {
+  color: var(--ll-outline);
+}
+
+/* Custom scrollbar for chat history panel lists */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Chat overlay menu items */
+.ln .chat-overlay-item {
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+.ln .chat-overlay-item:hover:not(.disabled) {
+  background: rgba(48, 89, 185, 0.12) !important;
+  transform: translateY(-1px);
+}
+.ln .chat-overlay-item:active:not(.disabled) {
+  transform: translateY(0) scale(0.97);
+}
+
+/* Premium active history item styling */
+.ln .chat-history-list button {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Combined header shell sizing & responsiveness */
+@media (max-width: 600px) {
+  .ln .app-bar-actions-container {
+    gap: 6px !important;
+  }
+}
+
+/* ── Redesigned Chat Control Panel & Category Buttons (Inline Accordion) ── */
+.ln .chat-history-navigation-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.ln .side-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: none;
+  background: transparent;
+  color: var(--ll-on-surface);
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+.ln .side-sub-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.ln .side-sub-item:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.ln .side-sub-item .ic {
+  font-size: 20px;
+  width: 20px;
+  text-align: center;
+  color: var(--ll-outline);
+  transition: color 0.15s ease;
+}
+
+.ln .side-sub-item:hover .ic {
+  color: var(--ll-primary);
+}
+
+.ln .side-sub-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Accordion sections */
+.ln .accordion-section {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+
+.ln .accordion-content {
+  box-sizing: border-box;
+}
+
+.ln .accordion-empty-text {
+  padding: 8px 12px 10px 32px;
+  font-size: 13px;
+  color: var(--ll-outline);
+  box-sizing: border-box;
+}
+
+.ln .accordion-empty-text.italic {
+  font-style: italic;
+}
+
+/* Items inside history chat */
+.ln .side-sub-item-chat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 32px !important;
+  border-radius: 10px;
+  background: transparent;
+  border: none;
+  color: var(--ll-on-surface);
+  text-align: left;
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.ln .side-sub-item-chat:hover {
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--ll-primary);
+}
+
+.ln .side-sub-item-chat.active {
+  background: rgba(48, 89, 185, 0.08) !important;
+  color: var(--ll-primary) !important;
+  font-weight: 600;
+}
+
+/* Soon badge */
+.ln .chat-overlay-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2.5px 6px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--ll-outline);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.2s ease;
+  line-height: 1;
+  display: inline-block;
+}
+
+
+
 
 
 

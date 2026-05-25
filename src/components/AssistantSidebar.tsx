@@ -49,7 +49,7 @@ export function AssistantSidebar() {
             <input
               type="text"
               className="bg-transparent border-none focus:ring-0 flex-1 font-body-md text-on-surface placeholder-on-surface-variant/50 outline-none p-0 h-10"
-              placeholder="Разбери слово или фразу."
+              placeholder="Спроси меня о чём угодно..."
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               autoComplete="off"
