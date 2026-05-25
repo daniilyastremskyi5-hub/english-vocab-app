@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const lightPath = path.join(__dirname, '../../../prompt_light_1.md');
-const fullPath = path.join(__dirname, '../../../prompt_full_1.md');
+const lightPath = path.join(__dirname, '../../../prompt_wordbreaker.md');
 const sentencePath = path.join(__dirname, '../../../prompt_sentence_1.md');
 const outputPath = path.join(__dirname, './-prompts.ts');
 
@@ -19,7 +18,6 @@ function escapePrompt(content) {
 try {
   console.log('Reading prompts...');
   const lightContent = fs.readFileSync(lightPath, 'utf8');
-  const fullContent = fs.readFileSync(fullPath, 'utf8');
   const sentenceContent = fs.readFileSync(sentencePath, 'utf8');
 
   // Format content to extract the inner block of prompt content (between the first ``` and the last ``` if present)
@@ -43,7 +41,6 @@ try {
   }
 
   const cleanLight = extractInner(lightContent);
-  const cleanFull = extractInner(fullContent);
   const cleanSentence = extractInner(sentenceContent);
 
   const fileContent = `// src/routes/api/-prompts.ts
@@ -51,7 +48,7 @@ try {
 
 export const LIGHT_BREAKDOWN_PROMPT = \`${escapePrompt(cleanLight)}\`;
 
-export const FULL_BREAKDOWN_PROMPT = \`${escapePrompt(cleanFull)}\`;
+export const FULL_BREAKDOWN_PROMPT = \`\`;
 
 export const SENTENCE_BREAKDOWN_PROMPT = \`${escapePrompt(cleanSentence)}\`;
 `;

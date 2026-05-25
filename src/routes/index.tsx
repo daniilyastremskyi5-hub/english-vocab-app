@@ -338,6 +338,79 @@ function Index() {
       return processedParas.join("");
     }
 
+    function parsePillarMarkdown(text: string): string {
+      if (!text) return "";
+
+      // Split into paragraphs by double newlines
+      const rawParas = text.split(/\n{2,}/);
+
+      const processedParas = rawParas.map((para, paraIndex, arr) => {
+        let trimmed = para.trim();
+        if (!trimmed) return "";
+
+        // 1. Contextual warning/precaution box: starts with ** and containing "не путай" in the bold part
+        const warningRegex = /^\*\*(не\s+пута[й|т]е?.*?)\*\*(.*)$/i;
+        const warningMatch = trimmed.match(warningRegex);
+        if (warningMatch) {
+          const boldText = warningMatch[1];
+          const restText = warningMatch[2];
+          return `
+            <div class="warning-box">
+              <span class="warning-icon">⚠️</span>
+              <div class="warning-content">
+                <strong>${parseInlineMarkdown(boldText)}</strong>${parseInlineMarkdown(restText)}
+              </div>
+            </div>
+          `;
+        }
+
+        // 2. Frequency Verdict: LAST paragraph, if entirely wrapped in **...**
+        if (paraIndex === arr.length - 1 && trimmed.startsWith("**") && trimmed.endsWith("**")) {
+          const boldContent = trimmed.slice(2, -2);
+          return `
+            <div class="verdict-box">
+              <span class="verdict-icon">💡</span>
+              <span class="verdict-text">${parseInlineMarkdown(boldContent)}</span>
+            </div>
+          `;
+        }
+
+        // 3. Muted Frequency Label: paragraph entirely wrapped in *...* (but not **)
+        if (trimmed.startsWith("*") && trimmed.endsWith("*") && !trimmed.startsWith("**")) {
+          const italicContent = trimmed.slice(1, -1);
+          return `
+            <p class="muted-italic"><em>${parseInlineMarkdown(italicContent)}</em></p>
+          `;
+        }
+
+        // 4. Regular paragraph
+        const parsedHtml = parseInlineMarkdown(trimmed);
+        const withBrs = parsedHtml.replace(/\n/g, "<br>");
+        return `<p class="pillar-para">${withBrs}</p>`;
+      });
+
+      return processedParas.filter(p => p !== "").join("");
+    }
+
+    function parseInlineMarkdown(text: string): string {
+      let html = escapeHtml(text);
+
+      // Parse inline tags in backticks -> .en-chip
+      html = html.replace(/`(.*?)`/g, '<span class="en-chip">$1</span>');
+
+      // Parse English examples + Russian translation
+      // Match *English example* followed by translation text until the next asterisk
+      html = html.replace(/\*([A-Za-z0-9\s'’,\.\!\?\-\"\;\:\(\)]+)\*([^\*]*)/g, (match, en, tr) => {
+        return `<em class="en-example">${en}</em><span class="en-example-translation">${tr}</span>`;
+      });
+
+      // General fallback bold and italics (if they weren't captured by block-level rules)
+      html = html.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+      html = html.replace(/\*(.*?)\*/g, "<em>$1</em>");
+
+      return html;
+    }
+
 
     function tryRepairJson(str: string): any {
       const trimmed = str.trim();
@@ -961,6 +1034,16 @@ function Index() {
         return res;
       }
 
+      // Check new pillars structure first
+      const pillars = b.pillars || (light && light.pillars) || (full && full.pillars);
+      if (Array.isArray(pillars)) {
+        const transPillar = pillars.find((p: any) => p.key === "translation");
+        if (transPillar && transPillar.content) {
+          const firstLine = transPillar.content.split("\n")[0] || "";
+          return cleanTranslation(firstLine);
+        }
+      }
+
       let translation = "";
       if (b.translation) {
         translation = typeof b.translation === "object" ? b.translation.main : b.translation;
@@ -1031,6 +1114,355 @@ function Index() {
       `;
     }
 
+    let activeTab = "translation";
+
+    function renderPillBreakdown(data: any, isLoading: boolean = false): string {
+      if (isLoading || !data || !Array.isArray(data.pillars)) {
+        // Render horizontal tabs skeleton
+        const tabSkeletons = [80, 100, 90, 85].map((w, idx) => `
+          <div class="pillar-tab skeleton-pill" style="width: ${w}px; height: 38px; border-radius: 9999px; background: rgba(255,255,255,0.4); animation: pulse 1.5s infinite; animation-delay: ${idx * 0.15}s; border: 1px solid rgba(255,255,255,0.5);"></div>
+        `).join("");
+
+        // Render content window skeleton
+        const contentSkeleton = `
+          <div class="pillar-content-window" style="animation: pulse 1.5s infinite; min-height: 180px;">
+            <div class="skeleton-line long" style="height: 14px; margin-bottom: 12px; width: 90%;"></div>
+            <div class="skeleton-line long" style="height: 14px; margin-bottom: 12px; width: 85%;"></div>
+            <div class="skeleton-line short" style="height: 14px; margin-bottom: 12px; width: 60%;"></div>
+          </div>
+        `;
+
+        return `
+          <div class="pillars-tabs-row no-scrollbar">
+            ${tabSkeletons}
+          </div>
+          ${contentSkeleton}
+        `;
+      }
+
+      // Check input note
+      let inputNoteHtml = "";
+      if (data.input_note) {
+        inputNoteHtml = `
+          <div class="input-note-alert fade-up" style="margin-bottom: 16px;">
+            💡 <em>${escapeHtml(data.input_note)}</em>
+          </div>
+        `;
+      }
+
+      // Key to Icon mapping
+      const mapKeyToIcon = (key: string): string => {
+        switch (key) {
+          case "translation": return "📝";
+          case "meanings": return "💡";
+          case "family": return "🔸";
+          case "alternatives": return "⇄";
+          case "phrases": return "📦";
+          case "grammar": return "📐";
+          case "pitfalls": return "⚠️";
+          default: return "🔹";
+        }
+      };
+
+      // Ensure activeTab is present in pillars, else fall back to first one
+      const hasActive = data.pillars.some((p: any) => p.key === activeTab);
+      if (!hasActive && data.pillars.length > 0) {
+        activeTab = data.pillars[0].key;
+      }
+
+      // Render actual tabs with sequential cascade delays
+      const tabsHtml = data.pillars.map((p: any, idx: number) => {
+        const icon = mapKeyToIcon(p.key);
+        const isActive = p.key === activeTab;
+        const delay = idx * 100; // 100ms cascade delay
+        return `
+          <button class="pillar-tab ${isActive ? "active" : ""}" data-key="${escapeHtml(p.key)}" style="animation-delay: ${delay}ms;">
+            <span class="pillar-icon">${icon}</span>
+            <span class="pillar-label">${escapeHtml(p.label)}</span>
+          </button>
+        `;
+      }).join("");
+
+      // Render content of active tab
+      const activePillar = data.pillars.find((p: any) => p.key === activeTab) || data.pillars[0];
+      const parsedContent = parsePillarMarkdown(activePillar?.content || "");
+
+      const contentHtml = `
+        <div class="pillar-content-window">
+          ${parsedContent}
+        </div>
+      `;
+
+      return `
+        ${inputNoteHtml}
+        <div class="pillars-tabs-row no-scrollbar">
+          ${tabsHtml}
+        </div>
+        ${contentHtml}
+      `;
+    }
+
+    function updatePillBreakdownDOM(wrap: HTMLElement, data: any, isStreaming: boolean) {
+      if (!wrap) return;
+
+      // 1. If we have a valid word_card parent and are no longer loading, transition to loaded state
+      const card = wrap.closest(".word-card") as HTMLElement | null;
+      if (card && data && Array.isArray(data.pillars) && data.pillars.length > 0) {
+        if (card.classList.contains("wc-loading")) {
+          card.classList.remove("wc-loading");
+          
+          // Prepend wc-head if it doesn't exist
+          let head = card.querySelector(".wc-head") as HTMLElement | null;
+          if (!head) {
+            head = document.createElement("div");
+            head.className = "wc-head";
+            card.insertBefore(head, card.firstChild);
+          }
+          
+          const word = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+          const translation = getTranslationFromBreakdown(data);
+          const currentLang = store.lang || "ru";
+          
+          head.innerHTML = `
+            <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+              <div class="wc-word">${escapeHtml(word)}</div>
+              <button class="sound-btn" data-text="${escapeHtml(word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+              </button>
+            </div>
+            ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
+          `;
+          
+          // Bind sound button listener
+          const soundBtn = head.querySelector(".sound-btn");
+          if (soundBtn) {
+            soundBtn.addEventListener("click", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const txt = soundBtn.getAttribute("data-text");
+              if (txt && typeof window !== "undefined" && "speechSynthesis" in window) {
+                const utter = new SpeechSynthesisUtterance(txt);
+                utter.lang = "en-US";
+                window.speechSynthesis.speak(utter);
+              }
+            });
+          }
+        } else {
+          // If head already exists, update translation dynamically as it streams in!
+          const head = card.querySelector(".wc-head") as HTMLElement | null;
+          if (head) {
+            const translation = getTranslationFromBreakdown(data);
+            let transDiv = head.querySelector(".wc-translation") as HTMLElement | null;
+            if (translation) {
+              if (!transDiv) {
+                transDiv = document.createElement("div");
+                transDiv.className = "wc-translation";
+                head.appendChild(transDiv);
+              }
+              transDiv.textContent = translation;
+            }
+          }
+        }
+        
+        // Remove style constraints on wc-detail/wc-detail-inner
+        const detail = card.querySelector(".wc-detail") as HTMLElement | null;
+        if (detail) detail.removeAttribute("style");
+        const inner = card.querySelector(".wc-detail-inner") as HTMLElement | null;
+        if (inner) inner.removeAttribute("style");
+      }
+
+      // 2. Render input_note if present and not already displayed
+      if (data && data.input_note) {
+        let noteDiv = wrap.querySelector(".input-note-alert") as HTMLElement | null;
+        if (!noteDiv) {
+          noteDiv = document.createElement("div");
+          noteDiv.className = "input-note-alert fade-up";
+          noteDiv.style.marginBottom = "16px";
+          wrap.insertBefore(noteDiv, wrap.firstChild);
+        }
+        noteDiv.innerHTML = `💡 <em>${escapeHtml(data.input_note)}</em>`;
+      }
+
+      // 3. Keep data-word-json updated
+      wrap.setAttribute("data-word-json", JSON.stringify(data));
+
+      // 4. Update the pillars-tabs-row!
+      let tabsRow = wrap.querySelector(".pillars-tabs-row") as HTMLElement | null;
+      if (!tabsRow) {
+        tabsRow = document.createElement("div");
+        tabsRow.className = "pillars-tabs-row no-scrollbar";
+        // Insert after input-note-alert, or at the start
+        const noteDiv = wrap.querySelector(".input-note-alert");
+        if (noteDiv && noteDiv.nextSibling) {
+          wrap.insertBefore(tabsRow, noteDiv.nextSibling);
+        } else if (noteDiv) {
+          wrap.appendChild(tabsRow);
+        } else {
+          wrap.insertBefore(tabsRow, wrap.firstChild);
+        }
+      }
+
+      const mapKeyToIcon = (key: string): string => {
+        switch (key) {
+          case "translation": return "📝";
+          case "meanings": return "💡";
+          case "family": return "🔸";
+          case "alternatives": return "⇄";
+          case "phrases": return "📦";
+          case "grammar": return "📐";
+          case "pitfalls": return "⚠️";
+          default: return "🔹";
+        }
+      };
+
+      const newPillars = (data && Array.isArray(data.pillars)) ? data.pillars : [];
+      
+      // Select the active tab if not set
+      if (newPillars.length > 0 && !newPillars.some((p: any) => p.key === activeTab)) {
+        activeTab = newPillars[0].key || "translation";
+      }
+
+      // We reconcile the existing children in tabsRow to avoid resetting scroll position!
+      const existingButtons = Array.from(tabsRow.querySelectorAll(".pillar-tab:not(.skeleton-pill)")) as HTMLButtonElement[];
+      
+      // Remove any existing buttons that are no longer in the new data
+      existingButtons.forEach(btn => {
+        const key = btn.getAttribute("data-key");
+        if (!newPillars.some((p: any) => p.key === key)) {
+          btn.remove();
+        }
+      });
+
+      // Update or insert buttons in order
+      newPillars.forEach((p: any, idx: number) => {
+        if (!p.key || !p.label) return; // Skip incomplete pillars
+        
+        let btn = tabsRow!.querySelector(`.pillar-tab[data-key="${p.key}"]`) as HTMLButtonElement | null;
+        const icon = mapKeyToIcon(p.key);
+        const isActive = p.key === activeTab;
+
+        if (!btn) {
+          // Create new button
+          btn = document.createElement("button");
+          btn.className = `pillar-tab ${isActive ? "active" : ""}`;
+          btn.setAttribute("data-key", p.key);
+          btn.style.animationDelay = `${idx * 100}ms`;
+          btn.innerHTML = `
+            <span class="pillar-icon">${icon}</span>
+            <span class="pillar-label">${escapeHtml(p.label)}</span>
+          `;
+          // Insert it before the first skeleton button, or at the end
+          const firstSkeleton = tabsRow!.querySelector(".skeleton-pill");
+          if (firstSkeleton) {
+            tabsRow!.insertBefore(btn, firstSkeleton);
+          } else {
+            tabsRow!.appendChild(btn);
+          }
+        } else {
+          // Update existing button state
+          if (isActive && !btn.classList.contains("active")) {
+            btn.classList.add("active");
+          } else if (!isActive && btn.classList.contains("active")) {
+            btn.classList.remove("active");
+          }
+          const labelSpan = btn.querySelector(".pillar-label");
+          if (labelSpan && labelSpan.textContent !== p.label) {
+            labelSpan.textContent = p.label;
+          }
+        }
+      });
+
+      // Manage skeletons during streaming
+      let skeletonPills = Array.from(tabsRow.querySelectorAll(".skeleton-pill")) as HTMLElement[];
+      if (isStreaming) {
+        // Ensure we always have e.g. 3 skeletons visible at the end
+        const neededSkeletons = 3;
+        if (skeletonPills.length < neededSkeletons) {
+          const diff = neededSkeletons - skeletonPills.length;
+          for (let i = 0; i < diff; i++) {
+            const sk = document.createElement("div");
+            sk.className = "pillar-tab skeleton-pill";
+            sk.style.width = `${80 + Math.random() * 20}px`;
+            sk.style.height = "38px";
+            sk.style.borderRadius = "9999px";
+            sk.style.background = "rgba(255,255,255,0.4)";
+            sk.style.border = "1px solid rgba(255,255,255,0.5)";
+            sk.style.animation = "pulse 1.5s infinite";
+            sk.style.animationDelay = `${(newPillars.length + i) * 0.15}s`;
+            tabsRow.appendChild(sk);
+          }
+        }
+      } else {
+        // Remove all skeletons once streaming is done!
+        skeletonPills.forEach(sk => sk.remove());
+      }
+
+      // Re-bind listeners for any newly created buttons
+      attachTabListeners(wrap, data);
+
+      // 5. Update the content window!
+      let contentWin = wrap.querySelector(".pillar-content-window") as HTMLElement | null;
+      if (!contentWin) {
+        contentWin = document.createElement("div");
+        contentWin.className = "pillar-content-window";
+        wrap.appendChild(contentWin);
+      }
+
+      const activePillar = newPillars.find((p: any) => p.key === activeTab);
+      if (activePillar) {
+        const parsedContent = parsePillarMarkdown(activePillar.content || "");
+        if (contentWin.innerHTML !== parsedContent) {
+          contentWin.innerHTML = parsedContent;
+          attachChips(contentWin);
+        }
+        
+        // Remove any style constraints (like pulsing skeleton height)
+        contentWin.removeAttribute("style");
+      } else {
+        // If no active pillar is parsed yet, render the content skeleton window
+        if (!contentWin.querySelector(".skeleton-line")) {
+          contentWin.style.animation = "pulse 1.5s infinite";
+          contentWin.style.minHeight = "180px";
+          contentWin.innerHTML = `
+            <div class="skeleton-line long" style="height: 14px; margin-bottom: 12px; width: 90%;"></div>
+            <div class="skeleton-line long" style="height: 14px; margin-bottom: 12px; width: 85%;"></div>
+            <div class="skeleton-line short" style="height: 14px; margin-bottom: 12px; width: 60%;"></div>
+          `;
+        }
+      }
+    }
+
+    function attachTabListeners(container: HTMLElement, data: any) {
+      if (!container) return;
+      container.querySelectorAll(".pillar-tab").forEach(tab => {
+        const el = tab as HTMLButtonElement & { __boundTab?: boolean };
+        if (el.__boundTab) return;
+        el.__boundTab = true;
+
+        el.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const key = el.getAttribute("data-key");
+          if (key) {
+            activeTab = key;
+            const wrap = el.closest(".breakdown-wrap") as HTMLElement | null || container.querySelector(".breakdown-wrap") as HTMLElement | null || (container.classList.contains("breakdown-wrap") ? container : null);
+            if (wrap) {
+              const rawJson = wrap.getAttribute("data-word-json") || JSON.stringify(data);
+              if (rawJson) {
+                try {
+                  const obj = JSON.parse(rawJson);
+                  const parsedData = obj.pillars ? obj : (obj._light && obj._light.pillars ? obj._light : obj);
+                  updatePillBreakdownDOM(wrap, parsedData, false);
+                } catch (err) {
+                  console.error("Failed to parse word JSON in tab click:", err);
+                }
+              }
+            }
+          }
+        });
+      });
+    }
+
     function renderUnifiedBreakdown(obj: any, wrapInCard: boolean = false): string {
       if (!obj) return "";
       if (obj.mode === "context") {
@@ -1043,26 +1475,14 @@ function Index() {
         return renderRuMap(obj);
       }
       
+      const data = obj.pillars ? obj : (obj._light && obj._light.pillars ? obj._light : obj);
       let innerHtml = "";
-      // If we have unified structure
-      if (obj._light) {
-        // Render light overview layer
-        const hasFull = !!(obj.breakdown && Array.isArray(obj.breakdown.blocks));
-        const lightHtml = renderLight(obj._light, false, hasFull);
-        let fullHtml = "";
-        if (hasFull) {
-          fullHtml = `
-            <div class="full-continuation-container active" style="margin-top: 24px;">
-              ${renderStage2(obj.breakdown, "full", false)}
-            </div>
-          `;
-        } else {
-          fullHtml = `<div class="full-continuation-container"></div>`;
-        }
-        innerHtml = lightHtml + fullHtml;
+      
+      if (Array.isArray(data.pillars)) {
+        innerHtml = `<div class="breakdown-wrap" data-word-json="${escapeHtml(JSON.stringify(obj))}">${renderPillBreakdown(data, false)}</div>`;
       } else {
-        // Default/Legacy Full word breakdown format
-        innerHtml = `<div data-stage1>${renderStage1(obj)}</div>` + renderStage2(obj);
+        // Fallback for old cached data structures (just wave1 and wave2)
+        innerHtml = `<div class="breakdown-wrap">${renderStage1(obj) + renderStage2(obj)}</div>`;
       }
 
       if (wrapInCard && obj.mode !== "sentence" && obj.mode !== "context" && obj.mode !== "ru-map") {
@@ -2025,20 +2445,6 @@ function Index() {
         }
       }
 
-      function cleanTranslation(str: string): string {
-        if (!str) return "";
-        let res = str.trim();
-        if (res.includes(" — ")) {
-          const parts = res.split(" — ");
-          if (parts[1]) res = parts[1];
-        } else if (res.includes(" - ")) {
-          const parts = res.split(" - ");
-          if (parts[1]) res = parts[1];
-        }
-        res = res.replace(/[\*\`\_]/g, "").trim();
-        return res;
-      }
-
       const groups: { header: string; items: typeof filtered }[] = [];
       filtered.forEach((h) => {
         const header = getGroupHeader(h.updated_at);
@@ -2054,49 +2460,7 @@ function Index() {
         .map((group) => {
           const itemsHtml = group.items.map((h) => {
             const b = h.breakdown || {};
-            const light = b._light || null;
-            const full = b.breakdown || null;
-
-            let translation = h.translation || "";
-            if (!translation && b.translation) {
-              translation = typeof b.translation === "object" ? b.translation.main : b.translation;
-            }
-            if (!translation && light && light.translation) {
-              translation = typeof light.translation === "object" ? light.translation.main : light.translation;
-            }
-            if (!translation && full && full.translation) {
-              translation = typeof full.translation === "object" ? full.translation.main : full.translation;
-            }
-            if (!translation && light && light.wave1 && light.wave1.content) {
-              const firstLine = light.wave1.content.split("\n")[0] || "";
-              translation = cleanTranslation(firstLine);
-            }
-            if (!translation && full && Array.isArray(full.contexts) && full.contexts.length) {
-              const firstCtx = full.contexts[0] || {};
-              const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-              translation = firstCtx.title || firstEx.ru || "";
-            }
-            if (!translation && Array.isArray(b.contexts) && b.contexts.length) {
-              const firstCtx = b.contexts[0] || {};
-              const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-              translation = firstCtx.title || firstEx.ru || "";
-            }
-            if (!translation && b.summary) {
-              translation = b.summary;
-            }
-            if (!translation && full && full.summary) {
-              translation = full.summary;
-            }
-            translation = String(translation || "").trim();
-
-            let pos = "";
-            if (b.pos) {
-              pos = b.pos;
-            } else if (light && light.pos) {
-              pos = light.pos;
-            } else if (full && full.pos) {
-              pos = full.pos;
-            }
+            const translation = h.translation || getTranslationFromBreakdown(b);
 
             return `
               <div class="word-card glass-card" data-hid="${escapeHtml(h.id)}">
@@ -2199,7 +2563,7 @@ function Index() {
             inner.appendChild(row);
           }
           attachWidgetToggles(inner);
-          attachDeepDiveHandlers(inner);
+          attachTabListeners(inner, obj);
           attachChips(inner);
           c.classList.add("open");
         });
@@ -2750,60 +3114,7 @@ function Index() {
           const light = b._light || null;
           const full = b.breakdown || null;
 
-          function cleanTranslation(str: string): string {
-            if (!str) return "";
-            let res = str.trim();
-            if (res.includes(" — ")) {
-              const parts = res.split(" — ");
-              if (parts[1]) res = parts[1];
-            } else if (res.includes(" - ")) {
-              const parts = res.split(" - ");
-              if (parts[1]) res = parts[1];
-            }
-            res = res.replace(/[\*\`\_]/g, "").trim();
-            return res;
-          }
-
-          let translation = "";
-          if (b.translation) {
-            translation = typeof b.translation === "object" ? b.translation.main : b.translation;
-          }
-          if (!translation && light && light.translation) {
-            translation = typeof light.translation === "object" ? light.translation.main : light.translation;
-          }
-          if (!translation && full && full.translation) {
-            translation = typeof full.translation === "object" ? full.translation.main : full.translation;
-          }
-          if (!translation && light && light.wave1 && light.wave1.content) {
-            const firstLine = light.wave1.content.split("\n")[0] || "";
-            translation = cleanTranslation(firstLine);
-          }
-          if (!translation && full && Array.isArray(full.contexts) && full.contexts.length) {
-            const firstCtx = full.contexts[0] || {};
-            const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-            translation = firstCtx.title || firstEx.ru || "";
-          }
-          if (!translation && Array.isArray(b.contexts) && b.contexts.length) {
-            const firstCtx = b.contexts[0] || {};
-            const firstEx = (firstCtx.examples && firstCtx.examples[0]) || {};
-            translation = firstCtx.title || firstEx.ru || "";
-          }
-          if (!translation && b.summary) {
-            translation = b.summary;
-          }
-          if (!translation && full && full.summary) {
-            translation = full.summary;
-          }
-          translation = String(translation || "").trim();
-
-          let pos = "";
-          if (b.pos) {
-            pos = b.pos;
-          } else if (light && light.pos) {
-            pos = light.pos;
-          } else if (full && full.pos) {
-            pos = full.pos;
-          }
+          const translation = getTranslationFromBreakdown(b);
 
           const folder = foldersList.find((f) => f.id === w.folder_id);
           const folderName = folder ? folder.name : "";
@@ -2883,7 +3194,7 @@ function Index() {
           const inner = c.querySelector(".wc-detail-inner") as HTMLElement;
           inner.innerHTML = renderUnifiedBreakdown(obj);
           attachWidgetToggles(inner);
-          attachDeepDiveHandlers(inner);
+          attachTabListeners(inner, obj);
           attachChips(inner);
           c.classList.add("open");
         });
@@ -3089,400 +3400,113 @@ function Index() {
       goBtn!.disabled = true;
       
       let lightData: any = null;
-      let fullObj: any = null;
 
       loading!.style.display = "none";
-      results!.innerHTML = renderLightContent(lightData, true, true);
-      attachWidgetToggles(results!);
-      attachChips();
+      // Show tabs skeleton inside wrapped card
+      results!.innerHTML = wrapHtmlInWordCard(`<div class="breakdown-wrap wc-loading" data-word-json="">${renderPillBreakdown(null, true)}</div>`, null, q, true);
       searchWrap!.classList.add("compact");
 
-
       try {
-        // Fetch Light stream
-        let lastRenderedHtml = "";
+        let activeTabSet = false;
+        let finalData: any = null;
+
         await fetchStream({ input: q, mode: "light" }, (accumulated, isFinished) => {
-          loading!.style.display = "none";
-          
           const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
           let parsed = null;
           try {
             parsed = tryRepairJson(cleaned);
           } catch {}
-          
-          if (parsed) {
-            if (parsed._light) {
-              lightData = parsed._light;
-              fullObj = parsed.breakdown;
-            } else {
-              lightData = parsed;
-            }
-          } else {
-            lightData = cleaned;
-          }
 
-          if (lightData && typeof lightData === "object" && (lightData.mode === "correction" || lightData.mode === "sentence" || lightData.error)) {
-            if (lightData.mode === "sentence") {
-              // Sentence mode has its own dedicated post-stream rendering, so we do not render it here
+          if (parsed && typeof parsed === "object") {
+            // 1. Correction mode
+            if (parsed.mode === "correction" || (parsed.message && parsed.suggestions)) {
+              if (isFinished) {
+                const suggestionsHtml = Array.isArray(parsed.suggestions) && parsed.suggestions.length
+                  ? `
+                    <div class="suggest-title" style="margin-top: 16px; font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">Возможно, ты имел в виду:</div>
+                    <div class="chips" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                      ${parsed.suggestions.map((s: string) => `<button class="chip" data-word="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join("")}
+                    </div>
+                  `
+                  : "";
+                results!.innerHTML = `
+                  <div class="correction-card fade-up">
+                    <div class="correction-message">${parseMarkdown(parsed.message || "")}</div>
+                    ${suggestionsHtml}
+                  </div>
+                `;
+                attachChips();
+                busy = false;
+                goBtn!.disabled = false;
+              }
               return;
             }
-            // Non-standard mode: fall back to innerHTML update
-            const newHtml = renderLightContent(lightData, !isFinished);
-            if (newHtml !== lastRenderedHtml) {
-              results!.innerHTML = newHtml;
-              lastRenderedHtml = newHtml;
-              attachWidgetToggles(results!);
-              attachChips();
-            }
-            return;
-          }
 
-          // Standard word/phrase mode: incremental DOM replacement
-          if (lightData && typeof lightData === "object") {
-            // Prepend input_note if it appears
-            const isInputNoteReady = isFinished || !!lightData.wave1;
-            if (lightData.input_note && isInputNoteReady && !results!.querySelector(".input-note-alert")) {
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = `
-                <div class="input-note-alert" style="margin-bottom: 16px; padding: 12px 16px; background: rgba(255,193,7,0.1); border-left: 4px solid var(--accent); border-radius: 4px; font-size: 0.95rem; line-height: 1.5;">
-                  💡 <em>${escapeHtml(lightData.input_note)}</em>
-                </div>
-              `;
-              const detailInner = results!.querySelector(".wc-detail-inner");
-              if (detailInner) {
-                detailInner.insertBefore(tempDiv.firstElementChild!, detailInner.firstChild);
-              } else {
-                results!.insertBefore(tempDiv.firstElementChild!, results!.firstChild);
-              }
-            }
-
-            // Replace Wave 1 skeleton if ready
-            const isWave1Ready = isFinished || !!lightData.wave2;
-            const skeleton1 = results!.querySelector('[data-skeleton="wave1"]');
-            if (skeleton1 && isWave1Ready && lightData.wave1) {
-              const title = lightData.wave1.title || "Что ты ввёл";
-              const content = parseMarkdown(lightData.wave1.content || "");
-              const word = lightData.canonical || lightData.word || q || "";
-              const isOpen = getCardWidgetState(word, title, true);
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = `<div class="skel-fade-in">${widgetHtml("📝", title, content, isOpen, 0, false)}</div>`;
-              const realNode = tempDiv.firstElementChild!;
-              skeleton1.replaceWith(realNode);
-              attachWidgetToggles(realNode as HTMLElement);
-              attachChips();
-            }
-
-            // Replace Wave 2 skeleton if ready
-            const isWave2Ready = isFinished || !!lightData.wave3 || !!lightData.deep_dive;
-            const skeleton2 = results!.querySelector('[data-skeleton="wave2"]');
-            if (skeleton2 && isWave2Ready && lightData.wave2) {
-              const title = lightData.wave2.title || "Что это вообще";
-              const content = parseMarkdown(lightData.wave2.content || "");
-              const word = lightData.canonical || lightData.word || q || "";
-              const isOpen = getCardWidgetState(word, title, false);
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = `<div class="skel-fade-in">${widgetHtml("💡", title, content, isOpen, 100, false)}</div>`;
-              const realNode = tempDiv.firstElementChild!;
-              skeleton2.replaceWith(realNode);
-              attachWidgetToggles(realNode as HTMLElement);
-              attachChips();
-            }
-
-            // Replace Wave 3 skeleton with deep_dive skeleton if mode is word
-            if (lightData.mode === "word") {
-              const skeleton3 = results!.querySelector('[data-skeleton="wave3"]');
-              if (skeleton3) {
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = `
-                  <div data-skeleton="deep_dive" class="skeleton-widget wave-skeleton deep-dive-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 24px; min-height: 180px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 16px;">
-                      <div class="skeleton-line title" style="width: 20%; height: 12px; margin-bottom: 0;"></div>
-                      <div class="skeleton-line title" style="width: 30%; height: 18px; margin-bottom: 0; border-radius: 999px;"></div>
-                    </div>
-                    <div class="skeleton-line title" style="width: 45%; height: 22px; margin-bottom: 12px;"></div>
-                    <div class="skeleton-line long" style="height: 14px; margin-bottom: 8px;"></div>
-                    <div class="skeleton-line short" style="height: 14px; margin-bottom: 20px;"></div>
-                    <div class="skeleton-line long" style="height: 46px; border-radius: 8px; margin-bottom: 0;"></div>
-                  </div>
-                  <div class="full-continuation-container"></div>
-                `;
-                const parent = skeleton3.parentNode!;
-                while (tempDiv.firstChild) {
-                  parent.insertBefore(tempDiv.firstChild, skeleton3);
-                }
-                skeleton3.remove();
-              }
-            }
-
-            // Replace deep_dive skeleton if finished
-            const skeletonDeepDive = results!.querySelector('[data-skeleton="deep_dive"]');
-            if (skeletonDeepDive && isFinished) {
-              if (!lightData.deep_dive) {
-                lightData.deep_dive = {
-                  recommended: true,
-                  label: `Разобрать подробнее: ${lightData.canonical || ""}`,
-                  hint: "Узнать подробности, готовую грамматику и частые грабли."
-                };
-              }
-              const recommendedBadgeHtml = lightData.deep_dive.recommended
-                ? `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(var(--ll-primary-rgb, 48, 89, 185), 0.08); color: var(--ll-primary); border: 1px solid rgba(var(--ll-primary-rgb, 48, 89, 185), 0.18); backdrop-filter: blur(8px);">Стоит открыть</span>`
-                : `<span class="badge recommended-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 4px 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.04); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.08); backdrop-filter: blur(8px);">Обзора достаточно</span>`;
-
-              const tempDiv = document.createElement("div");
-              tempDiv.innerHTML = `
-                <div class="deep-dive-card fade-up glass-card" style="margin-top: 28px; padding: 24px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 16px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                    <div class="deep-dive-title" style="font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">Глубокий разбор</div>
-                    ${recommendedBadgeHtml}
-                  </div>
-                  <div>
-                    <div class="deep-dive-hint" style="font-size: 14px; color: var(--text-dim); line-height: 1.5;">
-                      ${escapeHtml(lightData.deep_dive.hint || "")}
-                    </div>
-                  </div>
-                  <div style="margin-top: 4px;">
-                    <button class="btn-go deep-dive-btn" style="width: 100%; justify-content: center; height: 42px; font-size: 14px; font-weight: 500; transition: all 0.2s; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); backdrop-filter: blur(12px); border-radius: 10px; color: var(--text);" data-canonical="${escapeHtml(lightData.canonical || "")}">
-                      ${escapeHtml(lightData.deep_dive.label || "Разобрать подробнее")}
-                    </button>
-                  </div>
-                </div>
-              `;
-              skeletonDeepDive.replaceWith(tempDiv.firstElementChild!);
-              attachDeepDiveHandlers(results!);
-            }
-
-            // Replace Wave 3 skeleton if finished (legacy/sentence mode)
-            const skeleton3 = results!.querySelector('[data-skeleton="wave3"]');
-            if (skeleton3 && isFinished) {
-              if (Array.isArray(lightData.wave3) && lightData.wave3.length) {
-                const cardsHtml = lightData.wave3.map((item: any) => renderRecommendationCard(item)).join("");
-                
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = `
-                  <div class="wave3-section fade-up" style="margin-top: 24px;">
-                    <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
-                    <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
-                      ${cardsHtml}
-                    </div>
-                  </div>
-                `;
-                skeleton3.replaceWith(tempDiv.firstElementChild!);
+            // 2. Sentence mode (keep standard streaming flow for sentences)
+            if (parsed.mode === "sentence") {
+              if (isFinished) {
+                parsed.sentence = parsed.sentence || q;
+                results!.innerHTML = renderSentence(parsed, false);
+                attachWidgetToggles(results!);
                 attachChips();
-              } else {
-                skeleton3.remove();
+                lastBreakdown = parsed;
+
+                const mainTrans = parsed.translation?.main || "";
+                addHistory({ word: q, translation: mainTrans, mode: "sentence" }, parsed).then(() => {
+                  renderSaveRow();
+                });
+                busy = false;
+                goBtn!.disabled = false;
               }
+              return;
             }
-          }
-        });
 
-        // Process Light completed state
-        if (lightData && typeof lightData === "object") {
-          if (lightData.mode === "correction") {
-            busy = false;
-            goBtn!.disabled = false;
-            return;
-          }
-          
-          if (lightData.mode === "sentence") {
-            results!.innerHTML = renderSentence({ mode: "sentence" }, true);
-            attachWidgetToggles(results!);
-            attachChips();
-
-            let sentenceObj: any = null;
-            try {
-              await fetchStream({ input: q, mode: "sentence" }, (accumulated, isFinished) => {
-                if (!isFinished) return; // Buffer response to prevent skeleton jumpiness and incremental word rendering
-                const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-                let parsed = null;
-                try {
-                  parsed = tryRepairJson(cleaned);
-                } catch {}
-                
-                sentenceObj = parsed ?? cleaned;
-                if (sentenceObj && typeof sentenceObj === "object") {
-                  sentenceObj.sentence = sentenceObj.sentence || q;
-                  results!.innerHTML = renderSentence(sentenceObj, false);
-                  attachWidgetToggles(results!);
-                  attachChips();
+            // 3. Standard Word Mode
+            if (parsed.pillars && Array.isArray(parsed.pillars) && parsed.pillars.length > 0) {
+              finalData = parsed;
+              const wrap = results!.querySelector(".breakdown-wrap") as HTMLElement | null;
+              if (wrap) {
+                if (!activeTabSet) {
+                  activeTab = parsed.pillars[0].key || "translation";
+                  activeTabSet = true;
                 }
-              });
-
-              if (sentenceObj && typeof sentenceObj === "object") {
-                sentenceObj.mode = "sentence";
-                sentenceObj.sentence = sentenceObj.sentence || q;
-                sentenceObj.word = q;
-                lastBreakdown = sentenceObj;
-
-                // Sync history locally and cloud-wise
-                const mainTrans = sentenceObj.translation?.main || "";
-                await addHistory({ word: q, translation: mainTrans, mode: "sentence" }, sentenceObj);
-                renderSaveRow();
+                updatePillBreakdownDOM(wrap, parsed, !isFinished);
               }
-            } catch (err) {
-              console.error("Sentence breakdown stream failed:", err);
-              results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-            } finally {
-              busy = false;
-              goBtn!.disabled = false;
             }
-            return;
           }
 
-          const { canonical } = lightData;
-          if (canonical) {
-            const trans = lightData.wave1?.content ? lightData.wave1.content.split("\n")[0] : "";
-            lastLightData = lightData; // store for lazy load/runFull
+          if (isFinished && finalData) {
+            const { canonical } = finalData;
+            if (canonical) {
+              const trans = getTranslationFromBreakdown(finalData);
+              lastLightData = finalData;
+              lastBreakdown = finalData;
 
-            // Check if we already have the full breakdown in the response or local cache
-            let unifiedBreakdown = null;
-            if (fullObj) {
-              unifiedBreakdown = { _light: lightData, breakdown: fullObj };
-            } else {
-              const prevHist = historyList.find(h => h.word.toLowerCase() === canonical.toLowerCase() && h.breakdown && (h.breakdown.blocks || (h.breakdown.breakdown && h.breakdown.breakdown.blocks)));
-              const prevSaved = wordsList.find(w => w.word.toLowerCase() === canonical.toLowerCase() && w.breakdown && (w.breakdown.blocks || (w.breakdown.breakdown && w.breakdown.breakdown.blocks)));
-              const prev = prevHist || prevSaved;
-              if (prev && prev.breakdown) {
-                unifiedBreakdown = prev.breakdown;
+              const wrap = results!.querySelector(".breakdown-wrap") as HTMLElement | null;
+              if (wrap) {
+                updatePillBreakdownDOM(wrap, finalData, false);
               }
-            }
 
-            if (unifiedBreakdown) {
-              // Has cached Full — show it directly using unified renderer
-              lastBreakdown = unifiedBreakdown;
-              results!.innerHTML = renderUnifiedBreakdown(unifiedBreakdown, true);
-              
-              // Ensure we save it under full_json in history if we got a unified response from server but didn't have it locally
-              const alreadyInHistoryWithFull = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase() && h.mode === "full_json");
-              if (!alreadyInHistoryWithFull) {
-                addHistory({ word: canonical, translation: trans, mode: "full_json" }, unifiedBreakdown);
-              }
-            } else {
-              // No cached Full — show Light and save to history
-              lastBreakdown = { _light: lightData };
-              results!.innerHTML = renderUnifiedBreakdown(lastBreakdown, true);
-              
               // Only add if not already in history
               const alreadyInHistory = historyList.some(h => h.word.toLowerCase() === canonical.toLowerCase());
               if (!alreadyInHistory) {
-                addHistory({ word: canonical, translation: trans, mode: "light_json" }, lastBreakdown);
+                addHistory({ word: canonical, translation: trans, mode: "word" }, finalData).then(() => {
+                  renderSaveRow();
+                });
+              } else {
+                renderSaveRow();
               }
             }
-
-            attachWidgetToggles(results!);
-            attachDeepDiveHandlers(results!);
-            attachChips();
-            renderSaveRow();
+            busy = false;
+            goBtn!.disabled = false;
           }
-        }
+        });
       } catch (err) {
-        console.error("Light breakdown failed:", err);
-        loading!.style.display = "none";
+        console.error("Word breakdown failed:", err);
         results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
       } finally {
         busy = false;
         goBtn!.disabled = false;
-      }
-    }
-
-    // runFull: directly fetch Full breakdown for a canonical word (from Wave 3 chip click)
-    async function runFull(canonical: string) {
-      if (busy) return;
-      busy = true;
-
-      searchWrap!.classList.add("compact");
-
-      // Pass pos/type from the last known Light response if available
-      const ld = lastLightData;
-      const pos = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.pos : "") || "";
-      const type = (ld?.canonical?.toLowerCase() === canonical.toLowerCase() ? ld?.type : "") || "";
-
-      results!.innerHTML = wrapHtmlInWordCard(renderStage2(null, "full", true), { breakdown: { pos: pos, translation: "" } }, canonical, true);
-      attachWidgetToggles(results!);
-      attachChips();
-
-      let fullObj: any = null;
-
-      try {
-        await fetchStream({ canonical, pos, type, mode: "full" }, (accumulated, isFinished) => {
-          const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
-          let parsed = null;
-          try { parsed = tryRepairJson(cleaned); } catch {}
-          fullObj = parsed ?? cleaned;
-
-          if (fullObj && typeof fullObj === "object") {
-            // Replace completed blocks incrementally
-            if (Array.isArray(fullObj.blocks)) {
-              const completedCount = isFinished ? fullObj.blocks.length : Math.max(0, fullObj.blocks.length - 1);
-              for (let i = 0; i < completedCount; i++) {
-                const skeletonN = results!.querySelector(`[data-skeleton="${i}"]`);
-                if (skeletonN) {
-                  const block = fullObj.blocks[i];
-                  const icon = getBlockIcon(block.title);
-                  const title = block.title || "";
-                  const content = parseMarkdown(block.content || "");
-                  const isOpen = getCardWidgetState(canonical, title, false);
-                  const blockHtml = `<div class="skel-fade-in">${widgetHtml(icon, title, content, isOpen, 0, false)}</div>`;
-
-                  const tempDiv = document.createElement("div");
-                  tempDiv.innerHTML = blockHtml;
-                  const realNode = tempDiv.firstElementChild!;
-                  skeletonN.replaceWith(realNode);
-                  attachWidgetToggles(realNode as HTMLElement);
-                }
-              }
-            }
-
-            // Clean up remaining skeletons and append recommendations on completion
-            if (isFinished) {
-              results!.querySelectorAll("[data-skeleton]").forEach((el) => el.remove());
-              
-              const widgetsContainer = results!.querySelector(".widgets");
-              if (widgetsContainer && !results!.querySelector(".recommendations-section") && Array.isArray(fullObj.recommendations) && fullObj.recommendations.length) {
-                const recsHtml = fullObj.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
-                
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = `
-                  <div class="recommendations-section fade-up" style="margin-top: 24px;">
-                    <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
-                    <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
-                      ${recsHtml}
-                    </div>
-                  </div>
-                `;
-                widgetsContainer.parentNode!.insertBefore(tempDiv.firstElementChild!, widgetsContainer.nextSibling);
-                attachChips();
-              }
-            }
-          }
-        });
-
-        if (fullObj && typeof fullObj === "object") {
-          lastBreakdown = fullObj;
-          const existingSaved = wordsList.find((w) => w.word === fullObj.word);
-          if (existingSaved) {
-            existingSaved.breakdown = fullObj;
-            if (currentUserId) {
-              supabase.from("words").update({ breakdown: JSON.stringify(fullObj) }).eq("id", existingSaved.id).then(() => {});
-            } else {
-              store.words = store.words.map((w: any) =>
-                w.word === fullObj.word ? { ...w, breakdown: fullObj } : w
-              );
-              saveStore(store);
-            }
-          }
-          addHistory({ word: fullObj.word || canonical, translation: "", mode: "full_json" }, fullObj);
-          
-          // Re-render using unified layout with wrapInCard = true
-          results!.innerHTML = renderUnifiedBreakdown(fullObj, true);
-          attachWidgetToggles(results!);
-          attachChips();
-          renderSaveRow();
-        }
-      } catch (err) {
-        console.warn("Full breakdown failed:", err);
-        results!.innerHTML = `<div class="error">${escapeHtml(t("err.generic"))}</div>`;
-      } finally {
-        busy = false;
       }
     }
 

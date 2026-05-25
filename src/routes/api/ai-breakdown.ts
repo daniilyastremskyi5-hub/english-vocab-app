@@ -124,13 +124,6 @@ export const Route = createFileRoute("/api/ai-breakdown")({
             if (aliasRow && aliasRow.note) {
               cachedJson.input_note = aliasRow.note;
             }
-            
-            // If full breakdown also exists, return a unified structure containing both!
-            if (breakdownRow.full) {
-              console.log(`[AI-Breakdown] Cache HIT for "${rawInput}" (resolved: "${breakdownRow.canonical}"). Returning both light and full breakdowns.`);
-              return new Response(JSON.stringify({ _light: cachedJson, breakdown: breakdownRow.full }), { headers });
-            }
-            
             console.log(`[AI-Breakdown] Cache HIT for "${rawInput}" (resolved: "${breakdownRow.canonical}"). Returning light breakdown.`);
             return new Response(JSON.stringify(cachedJson), { headers });
           }
@@ -175,7 +168,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
               const decoder = new TextDecoder();
               const encoder = new TextEncoder();
               let buffer = "";
-              let accumulatedText = "";
+              let fullText = "";
               
               try {
                 while (true) {
@@ -194,87 +187,88 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                     try {
                       const json = JSON.parse(dataStr);
                       if (json?.type === "content_block_delta" && json?.delta?.type === "text_delta" && json?.delta?.text) {
-                        accumulatedText += json.delta.text;
-                        controller.enqueue(encoder.encode(json.delta.text));
+                        const delta = json.delta.text;
+                        fullText += delta;
+                        controller.enqueue(encoder.encode(delta));
                       }
                     } catch {}
+                  }
+                }
+
+                // Upsert to Supabase after successful stream completion
+                if (fullText && supabaseClient) {
+                  try {
+                    const parsedLight = cleanAndParseJson(fullText);
+                    if (parsedLight.mode === "word" && parsedLight.canonical) {
+                      const canon = parsedLight.canonical.trim();
+                      const typ = parsedLight.type;
+                      const posValue = parsedLight.pos;
+                      const note = parsedLight.input_note;
+
+                      // 1. Upsert primary mapping (rawInput -> canon)
+                      const aliasPayload = {
+                        input: rawInput,
+                        canonical: canon,
+                        type: typ || "common_verb",
+                        pos: posValue || "verb",
+                        note: note || null,
+                        valid: true
+                      };
+                      const { error: aliasErr } = await supabaseClient.from("input_aliases").upsert(aliasPayload);
+                      if (aliasErr) {
+                        console.error(`[AI-Breakdown] [ERROR] Failed to upsert input_aliases for input "${rawInput}", canonical "${canon}":`, aliasErr);
+                      }
+
+                      // 2. Also upsert canonical mapping if different
+                      const canonLower = canon.toLowerCase().trim();
+                      if (rawInput !== canonLower) {
+                        const canonAliasPayload = {
+                          input: canonLower,
+                          canonical: canon,
+                          type: typ || "common_verb",
+                          pos: posValue || "verb",
+                          note: null,
+                          valid: true
+                        };
+                        const { error: canonAliasErr } = await supabaseClient.from("input_aliases").upsert(canonAliasPayload);
+                        if (canonAliasErr) {
+                          console.error(`[AI-Breakdown] [ERROR] Failed to upsert input_aliases for canonical alias "${canonLower}", canonical "${canon}":`, canonAliasErr);
+                        }
+                      }
+
+                      const sanitizedLight = { ...parsedLight, input_note: null };
+                      const updatePayload: any = {
+                        canonical: canon,
+                        updated_at: new Date().toISOString(),
+                        light: sanitizedLight
+                      };
+                      
+                      const { error: breakdownErr } = await supabaseClient.from("word_breakdowns").upsert(updatePayload);
+                      if (breakdownErr) {
+                        console.error(`[AI-Breakdown] [DATABASE ERROR] Failed to save light_json to word_breakdowns:`, breakdownErr);
+                      } else {
+                        console.log(`[AI-Breakdown] [SUCCESS] Saved light_json to word_breakdowns for canonical "${canon}".`);
+                      }
+                    } else {
+                      console.log(`[AI-Breakdown] Claude response is not a word mode. Mode: "${parsedLight.mode || ''}". Skip database caching.`);
+                    }
+                  } catch (err) {
+                    console.error(`[AI-Breakdown] [ERROR] Exception parsing/caching light breakdown for rawInput "${rawInput}":`, err);
                   }
                 }
               } catch (err) {
                 controller.error(err);
                 return;
               }
-
-              if (accumulatedText && supabaseClient) {
-                try {
-                  const parsedLight = cleanAndParseJson(accumulatedText);
-                  if (parsedLight.mode === "word" && parsedLight.canonical) {
-                    const canon = parsedLight.canonical.trim();
-                    const typ = parsedLight.type;
-                    const posValue = parsedLight.pos;
-                    const note = parsedLight.input_note;
-
-                    // 1. Upsert primary mapping (rawInput -> canon)
-                    const aliasPayload = {
-                      input: rawInput,
-                      canonical: canon,
-                      type: typ || "common_verb",
-                      pos: posValue || "verb",
-                      note: note || null,
-                      valid: true
-                    };
-                    const { error: aliasErr } = await supabaseClient.from("input_aliases").upsert(aliasPayload);
-                    if (aliasErr) {
-                      console.error(`[AI-Breakdown] [ERROR] Failed to upsert input_aliases for input "${rawInput}", canonical "${canon}":`, aliasErr);
-                    }
-
-                    // 2. Also upsert canonical mapping (canon -> canon) if different to ensure direct searches hit cache
-                    const canonLower = canon.toLowerCase().trim();
-                    if (rawInput !== canonLower) {
-                      const canonAliasPayload = {
-                        input: canonLower,
-                        canonical: canon,
-                        type: typ || "common_verb",
-                        pos: posValue || "verb",
-                        note: null,
-                        valid: true
-                      };
-                      const { error: canonAliasErr } = await supabaseClient.from("input_aliases").upsert(canonAliasPayload);
-                      if (canonAliasErr) {
-                        console.error(`[AI-Breakdown] [ERROR] Failed to upsert input_aliases for canonical alias "${canonLower}", canonical "${canon}":`, canonAliasErr);
-                      }
-                    }
-
-                    const sanitizedLight = { ...parsedLight, input_note: null };
-                    
-                    const updatePayload: any = {
-                      canonical: canon,
-                      updated_at: new Date().toISOString(),
-                      light: sanitizedLight
-                    };
-                    
-                    // Upsert into word_breakdowns (since full is omitted, PostgreSQL DO UPDATE will leave it intact)
-                    const { error: breakdownErr } = await supabaseClient
-                      .from("word_breakdowns")
-                      .upsert(updatePayload);
-                    
-                    if (breakdownErr) {
-                      console.error(`[AI-Breakdown] [DATABASE ERROR] Failed to save light_json to word_breakdowns for canonical: "${canon}", rawInput: "${rawInput}". Error:`, breakdownErr);
-                    } else {
-                      console.log(`[AI-Breakdown] [SUCCESS] Saved light_json to word_breakdowns for canonical "${canon}".`);
-                    }
-                  } else {
-                    console.log(`[AI-Breakdown] Claude response is not a word mode. Mode: "${parsedLight.mode || ''}". Skip database caching.`);
-                  }
-                } catch (err) {
-                  console.error(`[AI-Breakdown] [ERROR] Exception parsing/caching light breakdown for rawInput "${rawInput}":`, err);
-                }
-              }
               controller.close();
             }
           });
 
-          return new Response(stream, { headers });
+          const streamHeaders: Record<string, string> = {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+          };
+          return new Response(stream, { headers: streamHeaders });
 
         } else if (mode === "sentence") {
           if (!input) {
@@ -354,135 +348,11 @@ export const Route = createFileRoute("/api/ai-breakdown")({
             }
           });
 
-          return new Response(stream, { headers });
-
-        } else if (mode === "full") {
-          if (!canonical) {
-            return new Response("Missing canonical for full mode.", { status: 400 });
-          }
-          const canonKey = canonical.trim();
-          // pos and type are optional — enrich the prompt when present
-          pos = pos || "";
-          type = type || "";
-
-          let breakdownRow: any = null;
-          if (supabaseClient) {
-            try {
-              const { data, error } = await supabaseClient
-                .from("word_breakdowns")
-                .select("*")
-                .eq("canonical", canonKey)
-                .single();
-              if (error && error.code !== "PGRST116") {
-                console.error("Error checking existing word_breakdowns for full mode cache:", error);
-              }
-              if (!error && data) {
-                breakdownRow = data;
-              }
-            } catch (e) {
-              console.error("Error reading cache:", e);
-            }
-          }
-
-          if (breakdownRow && breakdownRow.full) {
-            return new Response(JSON.stringify(breakdownRow.full), { headers });
-          }
-
-          const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "x-api-key": apiKey,
-              "anthropic-version": "2023-06-01",
-              "anthropic-beta": "extended-cache-ttl-2025-04-11",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model,
-              max_tokens: 4096,
-              stream: true,
-              system: [
-                {
-                  type: "text",
-                  text: FULL_BREAKDOWN_PROMPT,
-                  cache_control: { type: "ephemeral", ttl: "1h" },
-                },
-              ],
-              messages: [
-                {
-                  role: "user",
-                  content: JSON.stringify({ canonical: canonKey, pos, type }),
-                },
-              ],
-            }),
-          });
-
-          if (!upstream.ok || !upstream.body) {
-            const text = await upstream.text();
-            console.error("Anthropic API error:", text);
-            return new Response(text || "Anthropic API error", { status: upstream.status || 500 });
-          }
-
-          const stream = new ReadableStream({
-            async start(controller) {
-              const reader = upstream.body!.getReader();
-              const decoder = new TextDecoder();
-              const encoder = new TextEncoder();
-              let buffer = "";
-              let accumulatedText = "";
-              
-              try {
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buffer += decoder.decode(value, { stream: true });
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop() || "";
-                  
-                  for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed.startsWith("data:")) continue;
-                    const dataStr = trimmed.slice(5).trim();
-                    if (!dataStr) continue;
-                    
-                    try {
-                      const json = JSON.parse(dataStr);
-                      if (json?.type === "content_block_delta" && json?.delta?.type === "text_delta" && json?.delta?.text) {
-                        accumulatedText += json.delta.text;
-                        controller.enqueue(encoder.encode(json.delta.text));
-                      }
-                    } catch {}
-                  }
-                }
-              } catch (err) {
-                console.error("Error during upstream Claude stream reading (full mode):", err);
-                controller.error(err);
-                return;
-              }
-
-              if (accumulatedText && supabaseClient) {
-                try {
-                  const parsedFull = cleanAndParseJson(accumulatedText);
-                  const updatePayload: any = {
-                    canonical: canonKey,
-                    updated_at: new Date().toISOString(),
-                    full: parsedFull
-                  };
-                  
-                  const { error: breakdownErr } = await supabaseClient.from("word_breakdowns").upsert(updatePayload);
-                  if (breakdownErr) {
-                    console.error(`[AI-Breakdown] [DATABASE ERROR] Failed to save full_json to word_breakdowns for canonical "${canonKey}". Error details:`, breakdownErr);
-                  } else {
-                    console.log(`[AI-Breakdown] [SUCCESS] Saved full_json to word_breakdowns for canonical "${canonKey}".`);
-                  }
-                } catch (err) {
-                  console.error(`[AI-Breakdown] [ERROR] Exception parsing/caching full breakdown for canonical "${canonKey}":`, err);
-                }
-              }
-              controller.close();
-            }
-          });
-
-          return new Response(stream, { headers });
+          const streamHeaders: Record<string, string> = {
+            "Content-Type": "text/plain; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+          };
+          return new Response(stream, { headers: streamHeaders });
         }
         
         return new Response("Unknown mode", { status: 400 });
