@@ -1809,60 +1809,6 @@ body:has(.sidebar-backdrop.open) .m-composer-wrap {
   }
 }
 
-/* ── Redesigned Chat Control Panel & Category Buttons (Inline Accordion) ── */
-.ln .chat-history-navigation-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.ln .side-sub-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: none;
-  background: transparent;
-  color: var(--ll-on-surface);
-  font-family: 'Manrope', sans-serif;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
-  box-sizing: border-box;
-  text-decoration: none;
-}
-
-.ln .side-sub-item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.4);
-}
-
-.ln .side-sub-item:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.ln .side-sub-item .ic {
-  font-size: 20px;
-  width: 20px;
-  text-align: center;
-  color: var(--ll-outline);
-  transition: color 0.15s ease;
-}
-
-.ln .side-sub-item:hover .ic {
-  color: var(--ll-primary);
-}
-
-.ln .side-sub-item:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 /* Accordion sections */
 .ln .accordion-section {
   display: flex;
@@ -1930,6 +1876,115 @@ body:has(.sidebar-backdrop.open) .m-composer-wrap {
   transition: all 0.2s ease;
   line-height: 1;
   display: inline-block;
+}
+
+/* ── Frosted Glass History Card ── */
+.ln .history-popup-card {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 120;
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 28px;
+  padding: 16px;
+  box-shadow: 0 20px 48px rgba(48, 89, 185, 0.12), 0 2px 8px rgba(0, 0, 0, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  max-height: 70vh;
+  overflow-y: auto;
+  opacity: 0;
+  transform: scale(0.96) translateY(-4px);
+  animation: ln-historyCardFade 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes ln-historyCardFade {
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.ln .history-popup-card-divider {
+  height: 1px;
+  background: rgba(48, 89, 185, 0.08);
+  margin: 2px 0;
+}
+
+.ln .history-popup-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ll-outline);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0 4px;
+}
+
+.ln .history-popup-projects-btn {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 6px 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  gap: 10px;
+  color: var(--ll-on-surface);
+  font-family: 'Manrope', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  transition: background 0.15s ease;
+}
+
+.ln .history-popup-projects-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.ln .history-popup-projects-content {
+  box-sizing: border-box;
+  padding: 4px 0 8px 36px;
+  font-size: 13px;
+  color: var(--ll-outline);
+}
+
+.ln .history-popup-chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Custom scrollbars for History Card Popover */
+.ln .history-popup-card::-webkit-scrollbar,
+.ln .history-popup-chat-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.ln .history-popup-card::-webkit-scrollbar-track,
+.ln .history-popup-chat-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ln .history-popup-card::-webkit-scrollbar-thumb,
+.ln .history-popup-chat-list::-webkit-scrollbar-thumb {
+  background: rgba(48, 89, 185, 0.12);
+  border-radius: 99px;
+}
+
+.ln .history-popup-card::-webkit-scrollbar-thumb:hover,
+.ln .history-popup-chat-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(48, 89, 185, 0.25);
 }
 
 

@@ -394,6 +394,7 @@ export function renderCollocationsBlock(items: any[]): string {
 
 export function getWordFromBreakdown(b: any): string {
   if (!b) return "";
+  if (b.mode === "digest" && b.title) return b.title;
   if (b.word) return b.word;
   if (b.canonical) return b.canonical;
   if (b._light && b._light.canonical) return b._light.canonical;
@@ -403,10 +404,38 @@ export function getWordFromBreakdown(b: any): string {
   return "";
 }
 
+export function getDigestPreview(content: string): string {
+  if (!content) return "";
+  let clean = content
+    .replace(/[\*\`\_]/g, "") // remove formatting
+    .replace(/\n+/g, " ")     // newlines to space
+    .replace(/\s+/g, " ")     // collapse spaces
+    .trim();
+  
+  if (clean.length <= 120) return clean;
+  let sub = clean.slice(0, 120);
+  const lastSpace = sub.lastIndexOf(" ");
+  if (lastSpace > 0) {
+    sub = sub.slice(0, lastSpace);
+  }
+  return sub + "…";
+}
+
 export function getTranslationFromBreakdown(b: any): string {
   if (!b) return "";
   const light = b._light || null;
   const full = b.breakdown || null;
+
+  const mode = b.mode || (light && light.mode) || (full && full.mode);
+  if (mode === "digest") {
+    const pillars = b.pillars || (light && light.pillars) || (full && full.pillars);
+    if (Array.isArray(pillars)) {
+      const summaryPillar = pillars.find((p: any) => p.key === "summary");
+      if (summaryPillar && summaryPillar.content) {
+        return getDigestPreview(summaryPillar.content);
+      }
+    }
+  }
   
   function cleanTranslation(str: string): string {
     if (!str) return "";
@@ -528,118 +557,55 @@ export function renderPillBreakdown(data: any, isLoading: boolean = false): stri
 }
 
 export function renderSentence(obj: any, isStreaming: boolean = false, wordsList: any[] = [], historyList: any[] = []): string {
-  const isNew = obj && (
-    (obj.translation && typeof obj.translation === "object") ||
-    (obj.wave !== undefined) ||
-    (obj.recommendations !== undefined) ||
-    (isStreaming && !obj.highlights && !obj.comment)
-  );
-
-  if (isNew) {
-    const originalText = obj.sentence || obj.word || "";
-    
-    let mainTranslationHtml = "";
-    let variantsHtml = "";
-    
-    if (obj.translation && typeof obj.translation === "object") {
-      if (obj.translation.main) {
-        mainTranslationHtml = `<div class="sent-main-translation" style="font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;">${escapeHtml(obj.translation.main)}</div>`;
-      } else if (isStreaming) {
-        mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div>`;
-      }
-      
-      if (Array.isArray(obj.translation.variants) && obj.translation.variants.length) {
-        const listItems = obj.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
-        variantsHtml = `
-          <div class="sent-variants" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
-            <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
-              ${listItems}
-            </ul>
-          </div>
-        `;
-      }
+  if (!obj) return "";
+  
+  const originalText = obj.sentence || obj.word || "";
+  
+  let mainTranslationHtml = "";
+  let variantsHtml = "";
+  
+  if (obj.translation && typeof obj.translation === "object") {
+    if (obj.translation.main) {
+      mainTranslationHtml = `<div class="sent-main-translation" style="font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;">${escapeHtml(obj.translation.main)}</div>`;
     } else if (isStreaming) {
-      mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div><div class="skeleton-line long" style="height: 14px; width: 80%;"></div>`;
+      mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div>`;
     }
     
-    let waveHtml = "";
-    if (obj.wave) {
-      const waveTitle = obj.wave.title || "Что в этом предложении";
-      const waveContent = parseMarkdown(obj.wave.content || "");
-      const isOpen = getCardWidgetState(originalText, waveTitle, true);
-      waveHtml = widgetHtml("💡", waveTitle, waveContent, isOpen, 100, isStreaming && !obj.wave.content);
-    } else if (isStreaming) {
-      waveHtml = `
-        <div class="widget open skeleton-widget wave-skeleton" style="animation-delay: 100ms; min-height: 180px; margin-top: 16px;">
-          <div class="widget-head" style="cursor: default;">
-            <div class="skeleton-line title" style="margin-bottom: 0; width: 45%;"></div>
-          </div>
-          <div class="widget-body" style="grid-template-rows: 1fr;">
-            <div class="widget-content">
-              <div class="widget-content-inner" style="padding-top: 14px;">
-                <div class="skeleton-line long"></div>
-                <div class="skeleton-line long"></div>
-                <div class="skeleton-line short"></div>
-              </div>
-            </div>
-          </div>
+    if (Array.isArray(obj.translation.variants) && obj.translation.variants.length) {
+      const listItems = obj.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
+      variantsHtml = `
+        <div class="sent-variants" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+          <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+            ${listItems}
+          </ul>
         </div>
       `;
     }
-    
-    let recsHtml = "";
-    if (Array.isArray(obj.recommendations) && obj.recommendations.length) {
-      const cardsHtml = obj.recommendations.map((item: any) => renderRecommendationCard(item, wordsList, historyList)).join("");
-      recsHtml = `
-        <div class="wave3-section fade-up" style="margin-top: 28px;">
-          <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
-          <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
-            ${cardsHtml}
+  } else if (isStreaming) {
+    mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div><div class="skeleton-line long" style="height: 14px; width: 80%;"></div>`;
+  }
+  
+  const innerPillHtml = `<div class="breakdown-wrap" data-word-json="${escapeHtml(JSON.stringify(obj))}">${renderPillBreakdown(obj, isStreaming)}</div>`;
+  
+  return `
+    <div class="sentence-breakdown-container fade-up" style="width: 100%;">
+      <div class="word-card glass-card open fade-up" style="cursor: default; width: 100%;">
+        <div class="wc-head">
+          <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+            <div class="wc-word" style="font-size: 20px; font-weight: 700; line-height: 1.3;">${escapeHtml(originalText)}</div>
+            <button class="sound-btn" data-text="${escapeHtml(originalText)}" title="Прослушать" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+              <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+            </button>
           </div>
-        </div>
-      `;
-    } else if (isStreaming) {
-      recsHtml = `
-        <div class="skeleton-widget wave-skeleton wave3-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 16px; min-height: 100px;">
-          <div class="skeleton-line title" style="width: 40%; height: 18px; margin-bottom: 16px;"></div>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            <div class="skeleton-line short" style="height: 32px; border-radius: 999px;"></div>
-          </div>
-        </div>
-      `;
-    }
-    
-    return `
-      <div class="sentence-breakdown-container fade-up">
-        <div class="translation-card fade-up glass-card" style="margin-bottom: 24px; padding: 20px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px);">
-          <div class="sent-original" style="font-size: 20px; margin-bottom: 12px;"><em>${escapeHtml(originalText)}</em></div>
           ${mainTranslationHtml}
           ${variantsHtml}
         </div>
-        
-        <div class="widgets">
-          ${waveHtml}
+        <div class="wc-detail" style="margin-top: 16px;">
+          <div class="wc-detail-inner" style="padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+            ${innerPillHtml}
+          </div>
         </div>
-        
-        ${recsHtml}
       </div>
-    `;
-  }
-
-  const highlights = Array.isArray(obj.highlights) ? obj.highlights : [];
-  const items = highlights
-    .map(
-      (h: any) =>
-        `<div class="sent-hl-item"><span class="sent-hl-arrow">→</span> <span class="sent-hl-item-name">${escapeHtml(h?.item || "")}</span>${h?.why ? ` — <span class="sent-hl-why">${escapeHtml(h.why)}</span>` : ""}</div>`,
-    )
-    .join("");
-  return `
-    <div class="sentence-card fade-up">
-      <div class="sent-original"><em>${escapeHtml(obj.sentence || "")}</em></div>
-      ${obj.translation ? `<div class="sent-row"><span class="sent-label">Перевод:</span> ${escapeHtml(obj.translation)}</div>` : ""}
-      ${obj.comment ? `<div class="sent-row"><span class="sent-label">Комментарий:</span> ${escapeHtml(obj.comment)}</div>` : ""}
-      ${items ? `<div class="sent-section"><div class="sent-label">Что стоит разобрать:</div>${items}</div>` : ""}
-      ${obj.advice ? `<div class="sent-row sent-advice"><span class="sent-label">Совет:</span> ${escapeHtml(obj.advice)}</div>` : ""}
     </div>
   `;
 }

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState, useRef, type FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -42,7 +42,9 @@ interface BreakdownMessageProps {
     attachWidgetToggles: (root?: HTMLElement) => void;
     attachChips: (root?: HTMLElement) => void;
     attachDeepDiveHandlers: (root?: HTMLElement) => void;
-    renderUnifiedBreakdown: (obj: any, wrapInCard?: boolean) => string;
+    renderUnifiedBreakdown: (obj: any, wrapInCard?: boolean, isStreaming?: boolean) => string;
+    findSavedByWord?: (word: string) => any;
+    openFolderPickerFor?: (row: HTMLElement, breakdown: any, word: string) => void;
   } | null>;
   lang?: string;
   wordsList?: any[];
@@ -69,14 +71,15 @@ function BreakdownMessage({
     const handlers = domHandlersRef.current;
     if (!handlers) return;
 
-    const mode = breakdownData?.mode || (isLoading ? "loading" : "word");
+    const mode = breakdownData?.mode || (breakdownData?.pillars || breakdownData?.word ? "word" : (isLoading ? "loading" : "word"));
+    const isPillMode = mode === "word" || mode === "sentence" || mode === "digest";
 
     // Full draw if unitialized or mode has changed
     if (!initializedRef.current || prevModeRef.current !== mode) {
       initializedRef.current = true;
       prevModeRef.current = mode;
 
-      if (isLoading) {
+      if (mode === "loading") {
         el.innerHTML = wrapHtmlInWordCard(
           `<div class="breakdown-wrap wc-loading" data-word-json="">${renderPillBreakdown(null, true)}</div>`,
           null,
@@ -102,12 +105,12 @@ function BreakdownMessage({
           `;
           if (handlers.attachChips) handlers.attachChips(el);
         } else {
-          el.innerHTML = handlers.renderUnifiedBreakdown(breakdownData, true);
+          el.innerHTML = handlers.renderUnifiedBreakdown(breakdownData, true, isLoading);
           
-          if (mode === "word") {
+          if (isPillMode) {
             const wrap = el.querySelector(".breakdown-wrap") as HTMLElement | null;
             if (wrap) {
-              handlers.updatePillBreakdownDOM(wrap, breakdownData, false);
+              handlers.updatePillBreakdownDOM(wrap, breakdownData, isLoading);
             }
           } else {
             if (handlers.attachWidgetToggles) handlers.attachWidgetToggles(el);
@@ -118,11 +121,42 @@ function BreakdownMessage({
       return;
     }
 
-    // Streaming updates for standard word mode
-    if (mode === "word" && breakdownData && !isLoading) {
+    // Streaming updates for standard word/sentence modes
+    if (isPillMode && breakdownData) {
       const wrap = el.querySelector(".breakdown-wrap") as HTMLElement | null;
       if (wrap) {
-        handlers.updatePillBreakdownDOM(wrap, breakdownData, false);
+        handlers.updatePillBreakdownDOM(wrap, breakdownData, isLoading);
+      }
+    }
+
+    if (!isLoading && breakdownData && mode !== "correction") {
+      let saveRow = el.querySelector(".save-row") as HTMLElement | null;
+      if (!saveRow) {
+        saveRow = document.createElement("div");
+        saveRow.className = "save-row fade-up";
+        saveRow.style.marginTop = "16px";
+        el.querySelector(".word-card")?.appendChild(saveRow);
+      }
+      
+      const word = breakdownData.word || getWordFromBreakdown(breakdownData) || "Конспект";
+      if (word) {
+        const currentLang = lang || "ru";
+        const saved = handlers.findSavedByWord ? handlers.findSavedByWord(word) : null;
+        
+        if (saved) {
+          saveRow.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
+        } else {
+          saveRow.innerHTML = `<button class="btn-save glass-button">${escapeHtml(currentLang === "en" ? "Save →" : "Сохранить →")}</button>`;
+          const btn = saveRow.querySelector("button");
+          if (btn) {
+            btn.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              if (handlers.openFolderPickerFor) {
+                handlers.openFolderPickerFor(saveRow!, breakdownData, word);
+              }
+            });
+          }
+        }
       }
     }
   }, [word, breakdownData, isLoading, domHandlersRef, lang, wordsList, historyList]);
@@ -132,6 +166,12 @@ function BreakdownMessage({
 
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>): { page?: string; chatId?: string } => {
+    return {
+      page: search.page ? (search.page as string) : undefined,
+      chatId: search.chatId ? (search.chatId as string) : undefined,
+    };
+  },
   head: () => ({
     meta: [
       { title: "Lev & Nikol — разбор английских слов" },
@@ -146,6 +186,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const { page, chatId } = Route.useSearch();
   const [messages, setMessages] = useState<Array<{
     role: "user" | "assistant";
     content: string;
@@ -158,13 +199,79 @@ function Index() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [activePage, setActivePage] = useState<string>("breakdown");
   const [breakdownActive, setBreakdownActive] = useState(false);
-  const [showChatHistoryPanel, setShowChatHistoryPanel] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
+  const [isHistoryCardOpen, setIsHistoryCardOpen] = useState(false);
+
+  const toggleSidebar = () => {
+    const sidebar = document.getElementById("sidebar");
+    const backdrop = document.getElementById("sidebarBackdrop");
+    if (sidebar && backdrop) {
+      const open = sidebar.classList.toggle("open");
+      backdrop.classList.toggle("open");
+      document.body.classList.toggle("sidebar-open", open);
+    }
+  };
+
+  const closeSidebar = () => {
+    const sidebar = document.getElementById("sidebar");
+    const backdrop = document.getElementById("sidebarBackdrop");
+    if (sidebar && backdrop) {
+      sidebar.classList.remove("open");
+      backdrop.classList.remove("open");
+      document.body.classList.remove("sidebar-open");
+      setIsHistoryCardOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__lnSelectedMessageIds = selectedMessageIds;
+    }
+  }, [selectedMessageIds]);
+
+  useEffect(() => {
+    if (!isHistoryCardOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".history-card-container")) {
+        setIsHistoryCardOpen(false);
+      }
+    };
+    document.addEventListener("click", handleOutsideClick);
+    return () => document.removeEventListener("click", handleOutsideClick);
+  }, [isHistoryCardOpen]);
+
+  useEffect(() => {
+    const handleStartSelection = () => {
+      setIsSelectionMode(true);
+      setSelectedMessageIds([]);
+      if (typeof window !== "undefined") {
+        (window as any).__lnSelectedMessageIds = [];
+      }
+      switchPageRef.current("breakdown");
+    };
+
+    const handleCancelSelection = () => {
+      setIsSelectionMode(false);
+      setSelectedMessageIds([]);
+      if (typeof window !== "undefined") {
+        (window as any).__lnSelectedMessageIds = [];
+      }
+    };
+
+    window.addEventListener("ln-start-selection-mode", handleStartSelection);
+    window.addEventListener("ln-cancel-selection-mode", handleCancelSelection);
+
+    return () => {
+      window.removeEventListener("ln-start-selection-mode", handleStartSelection);
+      window.removeEventListener("ln-cancel-selection-mode", handleCancelSelection);
+    };
+  }, []);
   const [activeAccordion, setActiveAccordion] = useState<{
-    notebook: boolean;
     projects: boolean;
     history: boolean;
   }>({
-    notebook: false,
     projects: false,
     history: true
   });
@@ -172,7 +279,17 @@ function Index() {
     if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem("ln_chat_history");
-        return stored ? JSON.parse(stored) : [];
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter(chat =>
+              chat.messages && chat.messages.some((m: any) => m.role === "assistant" && m.type !== "breakdown")
+            );
+            localStorage.setItem("ln_chat_history", JSON.stringify(filtered));
+            return filtered;
+          }
+        }
+        return [];
       } catch (e) {
         console.error("Error reading chat history:", e);
       }
@@ -241,58 +358,152 @@ function Index() {
         throw new Error("Chat error");
       }
 
-      const reader = resp.body.getReader();
-      const decoder = new TextDecoder();
-      let streamTargetText = "";
-      let printedText = "";
-      let streamDone = false;
-      let typewriterIntervalId: any = null;
+      const responseType = resp.headers.get("x-response-type") || "chat";
 
-      // Start typewriter loop
-      const runTypewriter = new Promise<void>((resolve) => {
-        typewriterIntervalId = setInterval(() => {
-          if (printedText.length < streamTargetText.length) {
-            const diff = streamTargetText.length - printedText.length;
-            let charsToAdd = 1;
-            if (diff > 50) charsToAdd = 6;
-            else if (diff > 20) charsToAdd = 3;
-            else if (diff > 5) charsToAdd = 2;
-
-            // Ensure we don't slice a high surrogate pair (e.g. emojis)
-            const targetIndex = printedText.length + charsToAdd;
-            const lastChar = streamTargetText.charAt(targetIndex - 1);
-            const code = lastChar ? lastChar.charCodeAt(0) : 0;
-            const extraChar = (code >= 0xD800 && code <= 0xDBFF) ? 1 : 0;
-
-            printedText += streamTargetText.slice(printedText.length, targetIndex + extraChar);
-            
-            setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, content: printedText } : m));
-          } else if (streamDone) {
-            clearInterval(typewriterIntervalId);
-            resolve();
-          }
-        }, 15);
-      });
-
-      // Stream reader loop
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            streamDone = true;
-            break;
-          }
-          const chunk = decoder.decode(value, { stream: true });
-          streamTargetText += chunk;
+      if (responseType === "breakdown") {
+        // Enforce single breakdown per chat
+        const hasBreakdownInChat = currentMessages.some(m => m.type === "breakdown");
+        
+        let activeMsgs = [...currentMessages, userMessage];
+        
+        if (hasBreakdownInChat) {
+          archiveCurrentChatAndStartFresh();
+          activeMsgs = [userMessage];
         }
 
-        // Wait for typewriter to finish printing the buffer
-        await runTypewriter;
+        // Update bot message to be breakdown and set loading
+        setMessages([...activeMsgs, {
+          role: "assistant" as const,
+          content: "",
+          id: botMsgId,
+          type: "breakdown" as const,
+          word: trimmed,
+          breakdownData: null,
+          isLoading: true
+        }]);
 
-        saveCurrentChat([...updatedMessages, { role: "assistant" as const, content: streamTargetText, id: botMsgId }]);
-      } catch (err) {
-        if (typewriterIntervalId) clearInterval(typewriterIntervalId);
-        throw err;
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            accumulated += decoder.decode(value, { stream: true });
+            
+            const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+            let parsed = null;
+            try {
+              parsed = tryRepairJson(cleaned);
+            } catch {}
+
+            if (parsed && typeof parsed === "object") {
+              setMessages(prev => {
+                const updated = prev.map(m => m.id === botMsgId ? {
+                  ...m,
+                  breakdownData: parsed,
+                  isLoading: !done
+                } : m);
+                if (done) {
+                  setTimeout(() => saveCurrentChat(updated), 50);
+                }
+                return updated;
+              });
+            }
+
+            if (done) {
+              // Add to history
+              if (parsed && typeof parsed === "object") {
+                const { canonical, mode: parsedMode } = parsed;
+                const handlers = domHandlersRef.current;
+                
+                if (parsedMode === "sentence") {
+                  if (handlers && handlers.addHistory && handlers.renderSaveRow) {
+                    const mainTrans = parsed.translation?.main || "";
+                    handlers.addHistory({ word: trimmed, translation: mainTrans, mode: "sentence" }, parsed).then(() => {
+                      handlers.renderSaveRow();
+                    });
+                  }
+                } else if (canonical) {
+                  const trans = getTranslationFromBreakdown(parsed);
+                  if (handlers && handlers.getHistoryList && handlers.addHistory && handlers.renderSaveRow) {
+                    const historyList = handlers.getHistoryList() || [];
+                    const alreadyInHistory = historyList.some((h: any) => h.word.toLowerCase() === canonical.toLowerCase());
+                    if (!alreadyInHistory) {
+                      handlers.addHistory({ word: canonical, translation: trans, mode: "word" }, parsed).then(() => {
+                        handlers.renderSaveRow();
+                      });
+                    } else {
+                      handlers.renderSaveRow();
+                    }
+                  }
+                }
+              }
+              break;
+            }
+          }
+        } catch (err) {
+          console.error("Error reading breakdown stream inside chat:", err);
+          throw err;
+        }
+
+      } else {
+        // Standard Chat Mode
+        // Clear any breakdown flags on the placeholder bot message
+        setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, type: undefined, breakdownData: undefined, isLoading: false } : m));
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let streamTargetText = "";
+        let printedText = "";
+        let streamDone = false;
+        let typewriterIntervalId: any = null;
+
+        // Start typewriter loop
+        const runTypewriter = new Promise<void>((resolve) => {
+          typewriterIntervalId = setInterval(() => {
+            if (printedText.length < streamTargetText.length) {
+              const diff = streamTargetText.length - printedText.length;
+              let charsToAdd = 1;
+              if (diff > 50) charsToAdd = 6;
+              else if (diff > 20) charsToAdd = 3;
+              else if (diff > 5) charsToAdd = 2;
+
+              const targetIndex = printedText.length + charsToAdd;
+              const lastChar = streamTargetText.charAt(targetIndex - 1);
+              const code = lastChar ? lastChar.charCodeAt(0) : 0;
+              const extraChar = (code >= 0xD800 && code <= 0xDBFF) ? 1 : 0;
+
+              printedText += streamTargetText.slice(printedText.length, targetIndex + extraChar);
+              
+              setMessages(prev => prev.map(m => m.id === botMsgId ? { ...m, content: printedText } : m));
+            } else if (streamDone) {
+              clearInterval(typewriterIntervalId);
+              resolve();
+            }
+          }, 15);
+        });
+
+        // Stream reader loop
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              streamDone = true;
+              break;
+            }
+            const chunk = decoder.decode(value, { stream: true });
+            streamTargetText += chunk;
+          }
+
+          // Wait for typewriter to finish printing the buffer
+          await runTypewriter;
+
+          saveCurrentChat([...updatedMessages, { role: "assistant" as const, content: streamTargetText, id: botMsgId }]);
+        } catch (err) {
+          if (typewriterIntervalId) clearInterval(typewriterIntervalId);
+          throw err;
+        }
       }
     } catch (err) {
       console.error("Chat error:", err);
@@ -316,19 +527,27 @@ function Index() {
       const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
       const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
       
+      const currentIsChatWorthy = currentMessages.some(m => m.role === "assistant" && m.type !== "breakdown");
+      
       let updated = [...currentPastChats];
-      if (existingIndex !== -1) {
-        updated[existingIndex] = {
-          id: chatSessionId,
-          title: updated[existingIndex].title,
-          messages: currentMessages
-        };
+      if (currentIsChatWorthy) {
+        if (existingIndex !== -1) {
+          updated[existingIndex] = {
+            id: chatSessionId,
+            title: updated[existingIndex].title,
+            messages: currentMessages
+          };
+        } else {
+          updated.unshift({
+            id: chatSessionId,
+            title: title,
+            messages: currentMessages
+          });
+        }
       } else {
-        updated.unshift({
-          id: chatSessionId,
-          title: title,
-          messages: currentMessages
-        });
+        if (existingIndex !== -1) {
+          updated.splice(existingIndex, 1);
+        }
       }
       
       setPastChats(updated);
@@ -351,11 +570,19 @@ function Index() {
       const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
       const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
       
+      const currentIsChatWorthy = currentMessages.some(m => m.role === "assistant" && m.type !== "breakdown");
+      
       let updated = [...currentPastChats];
-      if (existingIndex !== -1) {
-        updated[existingIndex] = { id: chatSessionId, title: updated[existingIndex].title, messages: currentMessages };
+      if (currentIsChatWorthy) {
+        if (existingIndex !== -1) {
+          updated[existingIndex] = { id: chatSessionId, title: updated[existingIndex].title, messages: currentMessages };
+        } else {
+          updated.unshift({ id: chatSessionId, title, messages: currentMessages });
+        }
       } else {
-        updated.unshift({ id: chatSessionId, title, messages: currentMessages });
+        if (existingIndex !== -1) {
+          updated.splice(existingIndex, 1);
+        }
       }
       setPastChats(updated);
       localStorage.setItem("ln_chat_history", JSON.stringify(updated));
@@ -365,6 +592,38 @@ function Index() {
     setActiveChatId(chat.id);
     setBreakdownActive(false);
   };
+
+  useEffect(() => {
+    (window as any).__lnLoadChat = handleLoadChat;
+    return () => {
+      delete (window as any).__lnLoadChat;
+    };
+  }, [handleLoadChat]);
+
+  useEffect(() => {
+    if (chatId) {
+      const stored = localStorage.getItem("ln_chat_history");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            const targetChat = parsed.find(c => c.id === chatId);
+            if (targetChat && typeof (window as any).__lnLoadChat === "function") {
+              (window as any).__lnLoadChat(targetChat);
+            }
+          }
+        } catch (e) {}
+      }
+    }
+    if (page) {
+      const timer = setTimeout(() => {
+        if (switchPageRef.current) {
+          switchPageRef.current(page);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [page, chatId]);
 
   const saveCurrentChat = (currentMessages: Array<any>) => {
     if (currentMessages.length === 0) return;
@@ -395,6 +654,53 @@ function Index() {
 
     setPastChats(updated);
     localStorage.setItem("ln_chat_history", JSON.stringify(updated));
+  };
+
+  const archiveCurrentChatAndStartFresh = () => {
+    const currentMessages = messagesRef.current;
+    const currentActiveChatId = activeChatIdRef.current;
+    const currentPastChats = pastChatsRef.current;
+
+    if (currentMessages.length > 0) {
+      const chatSessionId = currentActiveChatId || `chat_${Date.now()}`;
+      const existingIndex = currentPastChats.findIndex(c => c.id === chatSessionId);
+      
+      const firstUserMsg = currentMessages.find(m => m.role === "user")?.content || "Новый чат";
+      const title = firstUserMsg.length > 25 ? firstUserMsg.substring(0, 25) + "..." : firstUserMsg;
+      
+      const currentIsChatWorthy = currentMessages.some(m => m.role === "assistant" && m.type !== "breakdown");
+      
+      let updated = [...currentPastChats];
+      if (currentIsChatWorthy) {
+        if (existingIndex !== -1) {
+          updated[existingIndex] = {
+            id: chatSessionId,
+            title: updated[existingIndex].title,
+            messages: currentMessages
+          };
+        } else {
+          updated.unshift({
+            id: chatSessionId,
+            title: title,
+            messages: currentMessages
+          });
+        }
+      } else {
+        if (existingIndex !== -1) {
+          updated.splice(existingIndex, 1);
+        }
+      }
+      
+      setPastChats(updated);
+      localStorage.setItem("ln_chat_history", JSON.stringify(updated));
+    }
+    
+    messagesRef.current = [];
+    activeChatIdRef.current = null;
+    
+    setMessages([]);
+    setActiveChatId(null);
+    setBreakdownActive(false);
   };
 
   const updateMessageBreakdownData = (canonical: string, combinedData: any) => {
@@ -1175,118 +1481,87 @@ function Index() {
     }
 
     function renderSentence(obj: any, isStreaming: boolean = false) {
-      const isNew = obj && (
-        (obj.translation && typeof obj.translation === "object") ||
-        (obj.wave !== undefined) ||
-        (obj.recommendations !== undefined) ||
-        (isStreaming && !obj.highlights && !obj.comment)
-      );
-
-      if (isNew) {
-        const originalText = obj.sentence || obj.word || (document.getElementById("wordInput") as HTMLInputElement | null)?.value || "";
-        
-        let mainTranslationHtml = "";
-        let variantsHtml = "";
-        
-        if (obj.translation && typeof obj.translation === "object") {
-          if (obj.translation.main) {
-            mainTranslationHtml = `<div class="sent-main-translation" style="font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;">${escapeHtml(obj.translation.main)}</div>`;
-          } else if (isStreaming) {
-            mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div>`;
-          }
-          
-          if (Array.isArray(obj.translation.variants) && obj.translation.variants.length) {
-            const listItems = obj.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
-            variantsHtml = `
-              <div class="sent-variants" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
-                <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
-                  ${listItems}
-                </ul>
-              </div>
-            `;
-          }
+      if (!obj) return "";
+      
+      const originalText = obj.sentence || obj.word || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+      
+      let mainTranslationHtml = "";
+      let variantsHtml = "";
+      
+      if (obj.translation && typeof obj.translation === "object") {
+        if (obj.translation.main) {
+          mainTranslationHtml = `<div class="sent-main-translation" style="font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;">${escapeHtml(obj.translation.main)}</div>`;
         } else if (isStreaming) {
-          mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div><div class="skeleton-line long" style="height: 14px; width: 80%;"></div>`;
+          mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 0; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div>`;
         }
         
-        let waveHtml = "";
-        if (obj.wave) {
-          const waveTitle = obj.wave.title || "Что в этом предложении";
-          const waveContent = parseMarkdown(obj.wave.content || "");
-          const isOpen = getCardWidgetState(originalText, waveTitle, true);
-          waveHtml = widgetHtml("💡", waveTitle, waveContent, isOpen, 100, isStreaming && !obj.wave.content);
-        } else if (isStreaming) {
-          waveHtml = `
-            <div class="widget open skeleton-widget wave-skeleton" style="animation-delay: 100ms; min-height: 180px; margin-top: 16px;">
-              <div class="widget-head" style="cursor: default;">
-                <div class="skeleton-line title" style="margin-bottom: 0; width: 45%;"></div>
-              </div>
-              <div class="widget-body" style="grid-template-rows: 1fr;">
-                <div class="widget-content">
-                  <div class="widget-content-inner" style="padding-top: 14px;">
-                    <div class="skeleton-line long"></div>
-                    <div class="skeleton-line long"></div>
-                    <div class="skeleton-line short"></div>
-                  </div>
-                </div>
-              </div>
+        if (Array.isArray(obj.translation.variants) && obj.translation.variants.length) {
+          const listItems = obj.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
+          variantsHtml = `
+            <div class="sent-variants" style="margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;">
+              <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                ${listItems}
+              </ul>
             </div>
           `;
         }
-        
-        let recsHtml = "";
-        if (Array.isArray(obj.recommendations) && obj.recommendations.length) {
-          const cardsHtml = obj.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
-          recsHtml = `
-            <div class="wave3-section fade-up" style="margin-top: 28px;">
-              <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Что разобрать дальше:</div>
-              <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
-                ${cardsHtml}
+      } else if (isStreaming) {
+        mainTranslationHtml = `<div class="skeleton-line title" style="width: 60%; height: 22px; margin-bottom: 8px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;"></div><div class="skeleton-line long" style="height: 14px; width: 80%;"></div>`;
+      }
+      
+      const currentLang = store.lang || "ru";
+      const innerPillHtml = `<div class="breakdown-wrap" data-word-json="${escapeHtml(JSON.stringify(obj))}">${renderPillBreakdown(obj, isStreaming)}</div>`;
+      
+      return `
+        <div class="sentence-breakdown-container fade-up" style="width: 100%;">
+          <div class="word-card glass-card open fade-up" style="cursor: default; width: 100%;">
+            <div class="wc-head">
+              <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+                <div class="wc-word" style="font-size: 20px; font-weight: 700; line-height: 1.3;">${escapeHtml(originalText)}</div>
+                <button class="sound-btn" data-text="${escapeHtml(originalText)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                  <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+                </button>
               </div>
-            </div>
-          `;
-        } else if (isStreaming) {
-          recsHtml = `
-            <div class="skeleton-widget wave-skeleton wave3-skeleton" style="animation-delay: 200ms; margin-top: 28px; padding: 16px; min-height: 100px;">
-              <div class="skeleton-line title" style="width: 40%; height: 18px; margin-bottom: 16px;"></div>
-              <div style="display: flex; flex-direction: column; gap: 8px;">
-                <div class="skeleton-line short" style="height: 32px; border-radius: 999px;"></div>
-              </div>
-            </div>
-          `;
-        }
-        
-        return `
-          <div class="sentence-breakdown-container fade-up">
-            <div class="translation-card fade-up glass-card" style="margin-bottom: 24px; padding: 20px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-elev); backdrop-filter: blur(20px);">
-              <div class="sent-original" style="font-size: 20px; margin-bottom: 12px;"><em>${escapeHtml(originalText)}</em></div>
               ${mainTranslationHtml}
               ${variantsHtml}
             </div>
-            
-            <div class="widgets">
-              ${waveHtml}
+            <div class="wc-detail" style="margin-top: 16px;">
+              <div class="wc-detail-inner" style="padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+                ${innerPillHtml}
+              </div>
             </div>
-            
-            ${recsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDigest(obj: any, isStreaming: boolean = false) {
+      if (!obj) return "";
+      
+      let headHtml = "";
+      if (obj.title) {
+        headHtml = `
+          <div class="wc-head">
+            <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+              <div class="wc-word" style="font-size: 20px; font-weight: 700; line-height: 1.3;">${escapeHtml(obj.title)}</div>
+            </div>
           </div>
         `;
       }
-
-      const highlights = Array.isArray(obj.highlights) ? obj.highlights : [];
-      const items = highlights
-        .map(
-          (h: any) =>
-            `<div class="sent-hl-item"><span class="sent-hl-arrow">→</span> <span class="sent-hl-item-name">${escapeHtml(h?.item || "")}</span>${h?.why ? ` — <span class="sent-hl-why">${escapeHtml(h.why)}</span>` : ""}</div>`,
-        )
-        .join("");
+      
+      const innerPillHtml = `<div class="breakdown-wrap" data-word-json="${escapeHtml(JSON.stringify(obj))}">${renderPillBreakdown(obj, isStreaming)}</div>`;
+      const hasHead = !!obj.title;
+      
       return `
-        <div class="sentence-card fade-up">
-          <div class="sent-original"><em>${escapeHtml(obj.sentence || "")}</em></div>
-          ${obj.translation ? `<div class="sent-row"><span class="sent-label">Перевод:</span> ${escapeHtml(obj.translation)}</div>` : ""}
-          ${obj.comment ? `<div class="sent-row"><span class="sent-label">Комментарий:</span> ${escapeHtml(obj.comment)}</div>` : ""}
-          ${items ? `<div class="sent-section"><div class="sent-label">Что стоит разобрать:</div>${items}</div>` : ""}
-          ${obj.advice ? `<div class="sent-row sent-advice"><span class="sent-label">Совет:</span> ${escapeHtml(obj.advice)}</div>` : ""}
+        <div class="sentence-breakdown-container fade-up" style="width: 100%;">
+          <div class="word-card glass-card open fade-up" style="cursor: default; width: 100%;">
+            ${headHtml}
+            <div class="wc-detail" style="margin-top: ${hasHead ? "16px" : "0"};">
+              <div class="wc-detail-inner" style="padding-top: ${hasHead ? "16px" : "0"}; border-top: ${hasHead ? "1px solid rgba(255,255,255,0.06)" : "none"};">
+                ${innerPillHtml}
+              </div>
+            </div>
+          </div>
         </div>
       `;
     }
@@ -1543,50 +1818,129 @@ function Index() {
 
       // 1. If we have a valid word_card parent and are no longer loading, transition to loaded state
       const card = wrap.closest(".word-card") as HTMLElement | null;
-      if (card && data && Array.isArray(data.pillars) && data.pillars.length > 0) {
+      if (card && data && ((Array.isArray(data.pillars) && data.pillars.length > 0) || data.mode === "sentence" || data.mode === "digest")) {
         if (card.classList.contains("wc-loading")) {
           card.classList.remove("wc-loading");
+        }
+        
+        if (data.mode === "sentence") {
+          // Update sentence-mode translation dynamically!
+          let mainTransDiv = card.querySelector(".sent-main-translation") as HTMLElement | null;
+          let variantsDiv = card.querySelector(".sent-variants") as HTMLElement | null;
           
+          if (data.translation && typeof data.translation === "object") {
+            if (data.translation.main) {
+              if (!mainTransDiv) {
+                // Remove skeleton title if present
+                const skeleton = card.querySelector(".skeleton-line.title") as HTMLElement | null;
+                if (skeleton) {
+                  skeleton.remove();
+                }
+                mainTransDiv = document.createElement("div");
+                mainTransDiv.className = "sent-main-translation";
+                mainTransDiv.style.cssText = "font-size: 16px; font-weight: 500; color: var(--text); font-family: inherit; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; margin-top: 12px;";
+                const head = card.querySelector(".wc-head") as HTMLElement | null;
+                if (head) {
+                  head.appendChild(mainTransDiv);
+                }
+              }
+              if (mainTransDiv.textContent !== data.translation.main) {
+                mainTransDiv.textContent = data.translation.main;
+              }
+            }
+            
+            if (Array.isArray(data.translation.variants) && data.translation.variants.length > 0) {
+              if (!variantsDiv) {
+                variantsDiv = document.createElement("div");
+                variantsDiv.className = "sent-variants";
+                variantsDiv.style.cssText = "margin-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px;";
+                const head = card.querySelector(".wc-head") as HTMLElement | null;
+                if (head) {
+                  head.appendChild(variantsDiv);
+                }
+              }
+              const listItems = data.translation.variants.map((v: string) => `<li style="font-size: 15px; color: var(--text-dim); line-height: 1.4;">${escapeHtml(v)}</li>`).join("");
+              variantsDiv.innerHTML = `
+                <ul style="margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px;">
+                  ${listItems}
+                </ul>
+              `;
+            }
+          }
+        } else if (data.mode === "digest") {
+          let head = card.querySelector(".wc-head") as HTMLElement | null;
+          if (data.title) {
+            if (!head) {
+              head = document.createElement("div");
+              head.className = "wc-head";
+              card.insertBefore(head, card.firstChild);
+            }
+            head.innerHTML = `
+              <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+                <div class="wc-word" style="font-size: 20px; font-weight: 700; line-height: 1.3;">${escapeHtml(data.title)}</div>
+              </div>
+            `;
+            const detail = card.querySelector(".wc-detail") as HTMLElement | null;
+            if (detail) {
+              detail.style.marginTop = "16px";
+            }
+            const inner = card.querySelector(".wc-detail-inner") as HTMLElement | null;
+            if (inner) {
+              inner.style.paddingTop = "16px";
+              inner.style.borderTop = "1px solid rgba(255,255,255,0.06)";
+            }
+          } else {
+            if (head) {
+              head.remove();
+            }
+            const detail = card.querySelector(".wc-detail") as HTMLElement | null;
+            if (detail) {
+              detail.style.marginTop = "0";
+            }
+            const inner = card.querySelector(".wc-detail-inner") as HTMLElement | null;
+            if (inner) {
+              inner.style.paddingTop = "0";
+              inner.style.borderTop = "none";
+            }
+          }
+        } else {
           // Prepend wc-head if it doesn't exist
           let head = card.querySelector(".wc-head") as HTMLElement | null;
           if (!head) {
             head = document.createElement("div");
             head.className = "wc-head";
             card.insertBefore(head, card.firstChild);
-          }
-          
-          const word = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
-          const translation = getTranslationFromBreakdown(data);
-          const currentLang = store.lang || "ru";
-          
-          head.innerHTML = `
-            <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
-              <div class="wc-word">${escapeHtml(word)}</div>
-              <button class="sound-btn" data-text="${escapeHtml(word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
-                <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
-              </button>
-            </div>
-            ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
-          `;
-          
-          // Bind sound button listener
-          const soundBtn = head.querySelector(".sound-btn");
-          if (soundBtn) {
-            soundBtn.addEventListener("click", (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const txt = soundBtn.getAttribute("data-text");
-              if (txt && typeof window !== "undefined" && "speechSynthesis" in window) {
-                const utter = new SpeechSynthesisUtterance(txt);
-                utter.lang = "en-US";
-                window.speechSynthesis.speak(utter);
-              }
-            });
-          }
-        } else {
-          // If head already exists, update translation dynamically as it streams in!
-          const head = card.querySelector(".wc-head") as HTMLElement | null;
-          if (head) {
+            
+            const word = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+            const translation = getTranslationFromBreakdown(data);
+            const currentLang = store.lang || "ru";
+            
+            head.innerHTML = `
+              <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
+                <div class="wc-word">${escapeHtml(word)}</div>
+                <button class="sound-btn" data-text="${escapeHtml(word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
+                  <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
+                </button>
+              </div>
+              ${translation ? `<div class="wc-translation">${escapeHtml(translation)}</div>` : ""}
+            `;
+            
+            // Bind sound button listener
+            const soundBtn = head.querySelector(".sound-btn");
+            if (soundBtn) {
+              soundBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const txt = soundBtn.getAttribute("data-text");
+                if (txt && typeof window !== "undefined" && "speechSynthesis" in window) {
+                  const utter = new SpeechSynthesisUtterance(txt);
+                  utter.lang = "en-US";
+                  window.speechSynthesis.speak(utter);
+                }
+              });
+            }
+          } else {
+            // If head already exists, update translation dynamically as it streams in!
             const translation = getTranslationFromBreakdown(data);
             let transDiv = head.querySelector(".wc-translation") as HTMLElement | null;
             if (translation) {
@@ -1647,11 +2001,31 @@ function Index() {
           case "phrases": return "📦";
           case "grammar": return "📐";
           case "pitfalls": return "⚠️";
+          case "analysis": return "🔍";
+          case "breakdown": return "🔍";
+          case "summary": return "📋";
+          case "recommendations": return "🚀";
           default: return "🔹";
         }
       };
 
-      const newPillars = (data && Array.isArray(data.pillars)) ? data.pillars : [];
+      let newPillars = (data && Array.isArray(data.pillars)) 
+        ? data.pillars.filter((p: any) => p && p.key && p.label && (p.key === "recommendations" || (p.content && p.content.trim() !== "")))
+        : [];
+
+      if (data && (data.mode === "sentence" || data.mode === "digest") && Array.isArray(data.recommendations) && data.recommendations.length > 0) {
+        if (!newPillars.some((p: any) => p.key === "recommendations")) {
+          newPillars.push({
+            key: "recommendations",
+            label: "Что дальше",
+            content: ""
+          });
+        }
+      }
+
+      if (tabsRow) {
+        tabsRow.style.display = newPillars.length <= 1 ? "none" : "flex";
+      }
       
       // Select the active tab if not set
       if (newPillars.length > 0 && !newPillars.some((p: any) => p.key === activeTab)) {
@@ -1746,7 +2120,21 @@ function Index() {
 
       const activePillar = newPillars.find((p: any) => p.key === activeTab);
       if (activePillar) {
-        const parsedContent = parsePillarMarkdown(activePillar.content || "");
+        let parsedContent = "";
+        if (activePillar.key === "recommendations" && Array.isArray(data.recommendations)) {
+          const cardsHtml = data.recommendations.map((item: any) => renderRecommendationCard(item)).join("");
+          parsedContent = `
+            <div class="wave3-section fade-up" style="margin-top: 12px;">
+              <div class="rec-title" style="font-weight: 600; margin-bottom: 12px; color: var(--text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">Рекомендованные разборы:</div>
+              <div class="rec-list" style="display: flex; flex-direction: column; gap: 12px;">
+                ${cardsHtml}
+              </div>
+            </div>
+          `;
+        } else {
+          parsedContent = parsePillarMarkdown(activePillar.content || "");
+        }
+        
         if (contentWin.innerHTML !== parsedContent) {
           contentWin.innerHTML = parsedContent;
           attachChips(contentWin);
@@ -1799,13 +2187,16 @@ function Index() {
       });
     }
 
-    function renderUnifiedBreakdown(obj: any, wrapInCard: boolean = false): string {
+    function renderUnifiedBreakdown(obj: any, wrapInCard: boolean = false, isStreaming: boolean = false): string {
       if (!obj) return "";
       if (obj.mode === "context") {
         return renderContext(obj);
       }
       if (obj.mode === "sentence") {
-        return renderSentence(obj);
+        return renderSentence(obj, isStreaming);
+      }
+      if (obj.mode === "digest") {
+        return renderDigest(obj, isStreaming);
       }
       if (obj.mode === "ru-map") {
         return renderRuMap(obj);
@@ -1821,7 +2212,7 @@ function Index() {
         innerHtml = `<div class="breakdown-wrap">${renderStage1(obj) + renderStage2(obj)}</div>`;
       }
 
-      if (wrapInCard && obj.mode !== "sentence" && obj.mode !== "context" && obj.mode !== "ru-map") {
+      if (wrapInCard && obj.mode !== "sentence" && obj.mode !== "digest" && obj.mode !== "context" && obj.mode !== "ru-map") {
         const word = getWordFromBreakdown(obj) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
         return wrapHtmlInWordCard(innerHtml, obj, word);
       }
@@ -2462,6 +2853,7 @@ function Index() {
         "nav.library": "Мои слова",
         "nav.history": "История разборов",
         "nav.top": "Топ слов",
+        "nav.training": "Тренировка",
         "nav.account": "Аккаунт",
         "brand.sub": "Разбор английских слов",
         "search.placeholder": "Введи слово или фразу на английском…",
@@ -2499,6 +2891,7 @@ function Index() {
         "nav.library": "My words",
         "nav.history": "History",
         "nav.top": "Top words",
+        "nav.training": "Training",
         "nav.account": "Account",
         "brand.sub": "English word breakdowns",
         "search.placeholder": "Type an English word or phrase…",
@@ -3175,6 +3568,22 @@ function Index() {
       renderSaveRow();
       renderLibrary();
       if (document.getElementById("page-history")?.classList.contains("active")) renderHistory();
+
+      // Dynamically update matching save rows in the chat feed
+      const saved = findSavedByWord(word);
+      if (saved) {
+        document.querySelectorAll(".chat-breakdown-message-wrapper").forEach((wrapper) => {
+          const wcWordEl = wrapper.querySelector(".wc-word");
+          const wcWord = wcWordEl?.textContent?.trim().toLowerCase();
+          if (wcWord === word.trim().toLowerCase() || (word.trim().toLowerCase() === "конспект" && wrapper.querySelector(".wc-word")?.textContent?.includes("Конспект"))) {
+            const saveRow = wrapper.querySelector(".save-row");
+            if (saveRow) {
+              const currentLang = store.lang || "ru";
+              saveRow.innerHTML = `<div class="saved-folder-note">${escapeHtml(currentLang === "en" ? "Saved to:" : "Сохранено в:")} <span class="sf-name">${escapeHtml(saved.folderName)}</span></div>`;
+            }
+          }
+        });
+      }
     }
 
     let activeFolder = "__all__"; // "__all__" or folder.id
@@ -3593,6 +4002,7 @@ function Index() {
 
     function switchPage(name: string) {
       setActivePage(name);
+      setIsHistoryCardOpen(false);
       document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
       const pg = document.getElementById("page-" + name);
       if (pg) pg.classList.add("active");
@@ -3622,23 +4032,7 @@ function Index() {
       document.getElementById("sidebarBackdrop")!.classList.remove("open");
       document.body.classList.remove("sidebar-open");
     }
-    document.querySelectorAll(".side-item").forEach((tEl) => {
-      tEl.addEventListener("click", () => {
-        const p = tEl.getAttribute("data-page");
-        if (p) switchPage(p);
-      });
-    });
     document.body.classList.add("page-breakdown");
-    document.getElementById("menuTrigger")!.addEventListener("click", () => {
-      const open = document.getElementById("sidebar")!.classList.toggle("open");
-      document.getElementById("sidebarBackdrop")!.classList.toggle("open");
-      document.body.classList.toggle("sidebar-open", open);
-    });
-    document.getElementById("sidebarBackdrop")!.addEventListener("click", () => {
-      document.getElementById("sidebar")!.classList.remove("open");
-      document.getElementById("sidebarBackdrop")!.classList.remove("open");
-      document.body.classList.remove("sidebar-open");
-    });
 
     // Wire up Animated Search Bar event listeners
     const searchBar = document.getElementById("appBarSearch");
@@ -3737,6 +4131,12 @@ function Index() {
       if (busy) return;
       busy = true;
       goBtn!.disabled = true;
+
+      // If a breakdown is already present in this chat, archive it and start a new chat
+      const hasBreakdownInChat = messagesRef.current.some(m => m.type === "breakdown");
+      if (hasBreakdownInChat) {
+        archiveCurrentChatAndStartFresh();
+      }
       
       const userMsgId = `msg_${Date.now()}`;
       const userMsg = { role: "user" as const, content: q, id: userMsgId };
@@ -3890,20 +4290,7 @@ function Index() {
       }
       
       const cleanQ = q.trim();
-
-      if (shouldRunBreakdown(cleanQ)) {
-        if (input) {
-          input.value = cleanQ;
-          const ctxEl = document.getElementById("contextInput") as HTMLInputElement | null;
-          if (ctxEl) {
-            ctxEl.value = ctx || "";
-          }
-          run();
-        }
-      } else {
-        setBreakdownActive(false);
-        sendMessage(cleanQ);
-      }
+      sendMessage(cleanQ);
     };
     (window as unknown as { __lnRunBreakdown?: (q: string, ctx?: string) => void }).__lnRunBreakdown =
       runFromAssistant;
@@ -4043,23 +4430,107 @@ function Index() {
       refreshCloudAndRender();
     });
 
-    const handleDocClickCloseOverlay = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      const panel = document.querySelector(".chat-history-navigation-panel");
-      const trigger = document.querySelector(".chat-history-trigger");
-      if (panel && !panel.contains(target) && !trigger?.contains(target)) {
-        setShowChatHistoryPanel(false);
-      }
-    };
-    document.addEventListener("click", handleDocClickCloseOverlay);
-
     domHandlersRef.current = {
       updatePillBreakdownDOM,
       attachWidgetToggles,
       attachChips,
       attachDeepDiveHandlers,
-      renderUnifiedBreakdown
+      renderUnifiedBreakdown,
+      addHistory,
+      renderSaveRow,
+      getHistoryList: () => historyList,
+      findSavedByWord,
+      openFolderPickerFor
     };
+
+    const handleSubmitDigest = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ auxiliaryText: string }>;
+      const { auxiliaryText } = customEvent.detail;
+
+      const selectedIds = (window as any).__lnSelectedMessageIds || [];
+      if (selectedIds.length === 0 || busy) return;
+      busy = true;
+
+      // Find selected messages in chronological order
+      const selectedMsgs = messagesRef.current.filter(m => selectedIds.includes(m.id));
+      
+      // Reset selection state
+      window.dispatchEvent(new CustomEvent("ln-cancel-selection-mode"));
+
+      const botMsgId = `msg_${Date.now()}`;
+      const botMsg = {
+        role: "assistant" as const,
+        content: "",
+        id: botMsgId,
+        type: "breakdown" as const,
+        word: "Конспект",
+        breakdownData: null,
+        isLoading: true
+      };
+
+      const updatedMessages = [...messagesRef.current, botMsg];
+      setMessages(updatedMessages);
+
+      try {
+        const resp = await fetch("/api/ai-breakdown", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            mode: "digest",
+            messages: selectedMsgs.map(m => ({ role: m.role, content: m.content })),
+            input: auxiliaryText
+          })
+        });
+
+        if (!resp.ok || !resp.body) {
+          throw new Error("Digest generation error");
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let accumulated = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          accumulated += decoder.decode(value, { stream: true });
+
+          const cleaned = accumulated.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
+          let parsed = null;
+          try {
+            parsed = tryRepairJson(cleaned);
+          } catch {}
+
+          if (parsed && typeof parsed === "object") {
+            setMessages(prev => {
+              const updated = prev.map(m => m.id === botMsgId ? {
+                ...m,
+                breakdownData: parsed,
+                isLoading: !done
+              } : m);
+              if (done) {
+                setTimeout(() => saveCurrentChat(updated), 50);
+              }
+              return updated;
+            });
+          }
+
+          if (done) {
+            break;
+          }
+        }
+      } catch (err) {
+        console.error("Digest generation failed:", err);
+        setMessages(prev => prev.map(m => m.id === botMsgId ? {
+          ...m,
+          isLoading: false,
+          content: "Ошибка при генерации конспекта. Пожалуйста, попробуйте еще раз."
+        } : m));
+      } finally {
+        busy = false;
+      }
+    };
+
+    window.addEventListener("ln-submit-digest", handleSubmitDigest);
 
     switchPageRef.current = switchPage;
 
@@ -4067,7 +4538,7 @@ function Index() {
       form.removeEventListener("submit", onSubmit);
       document.removeEventListener("click", onDocClickClose);
       document.removeEventListener("click", onDocClickCloseSearch);
-      document.removeEventListener("click", handleDocClickCloseOverlay);
+      window.removeEventListener("ln-submit-digest", handleSubmitDigest);
       authSub.subscription.unsubscribe();
       delete (window as unknown as { __lnRunBreakdown?: unknown }).__lnRunBreakdown;
       delete (window as unknown as { __lnResetBreakdown?: unknown }).__lnResetBreakdown;
@@ -4078,7 +4549,7 @@ function Index() {
     <div className="ln">
       {/* ── Floating App Bar ── */}
       <div className="app-bar">
-        <button className="menu-trigger glass-button" id="menuTrigger" aria-label="Меню" type="button">
+        <button className="menu-trigger glass-button" id="menuTrigger" aria-label="Меню" type="button" onClick={toggleSidebar}>
           <span className="material-symbols-outlined">menu</span>
         </button>
 
@@ -4185,120 +4656,47 @@ function Index() {
 
       {/* ── Navigation Drawer ── */}
       <aside className="sidebar glass-panel" id="sidebar">
-        <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px", justifyContent: "center" }}>
-          <button className="side-item active" data-page="breakdown" type="button">
-            <span className="ic material-symbols-outlined">chat</span>
-            <span data-i18n="nav.breakdown">Чат</span>
-          </button>
-
-          {/* История чатов trigger button */}
+        {/* Top Anchor: История чатов */}
+        <div className="side-top history-card-container" style={{ position: "relative", marginBottom: "16px" }}>
           <button
-            className={`side-item chat-history-trigger ${showChatHistoryPanel ? "active" : ""}`}
-            type="button"
+            className={`side-item ${isHistoryCardOpen ? "active" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
-              setShowChatHistoryPanel(!showChatHistoryPanel);
+              setIsHistoryCardOpen(prev => !prev);
             }}
+            type="button"
           >
-            <span className="ic material-symbols-outlined">forum</span>
+            <span className="ic material-symbols-outlined">history</span>
             <span>История чатов</span>
             <span 
-              className="material-symbols-outlined" 
+              className="material-symbols-outlined"
               style={{ 
-                marginLeft: "auto", 
-                fontSize: "18px", 
-                transition: "transform 0.25s ease",
-                transform: showChatHistoryPanel ? "rotate(180deg)" : "rotate(0deg)",
-                color: showChatHistoryPanel ? "var(--ll-primary)" : "var(--ll-outline)"
+                marginLeft: "auto",
+                fontSize: "18px",
+                transform: isHistoryCardOpen ? "rotate(180deg)" : "rotate(0deg)",
+                transition: "transform 0.2s",
+                color: "var(--ll-outline)"
               }}
             >
               expand_more
             </span>
           </button>
 
-          {/* Slide-down chat history inline panel */}
-          <div
-            className="chat-history-navigation-panel"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              overflow: "hidden",
-              transition: "max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), margin 0.3s ease, padding 0.3s ease, border-color 0.3s ease",
-              maxHeight: showChatHistoryPanel ? "800px" : "0px",
-              marginTop: showChatHistoryPanel ? "4px" : "0px",
-              marginBottom: showChatHistoryPanel ? "8px" : "0px",
-              borderRadius: "20px",
-              background: "rgba(255, 255, 255, 0.18)",
-              border: showChatHistoryPanel ? "1px solid rgba(255, 255, 255, 0.35)" : "1px solid transparent",
-              boxShadow: "inset 0 1px 2px rgba(255, 255, 255, 0.2), 0 8px 24px rgba(48, 89, 185, 0.04)",
-              backdropFilter: "blur(40px)",
-              WebkitBackdropFilter: "blur(40px)",
-              padding: showChatHistoryPanel ? "10px" : "0px 10px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px"
-            }}
-          >
-            {/* 1. Новый чат (direct action button) */}
-            <button
-              className="side-sub-item"
-              onClick={() => {
-                handleNewChat();
-                setShowChatHistoryPanel(false);
-                switchPageRef.current("breakdown");
-              }}
-              type="button"
-            >
-              <span className="ic material-symbols-outlined">add</span>
-              <span style={{ fontWeight: 600, color: "var(--ll-primary)" }}>Новый чат</span>
-            </button>
-
-            {/* 2. Блокнот (Accordion) */}
-            <div className="accordion-section">
-              <button
-                className="side-sub-item"
-                onClick={() => setActiveAccordion(prev => ({ ...prev, notebook: !prev.notebook }))}
-                type="button"
-              >
-                <span className="ic material-symbols-outlined">description</span>
-                <span>Блокнот</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
-                  <span className="chat-overlay-badge">Скоро</span>
-                  <span 
-                    className="material-symbols-outlined"
-                    style={{ 
-                      fontSize: "16px",
-                      transform: activeAccordion.notebook ? "rotate(180deg)" : "rotate(0deg)",
-                      transition: "transform 0.2s",
-                      color: "var(--ll-outline)"
-                    }}
-                  >
-                    expand_more
-                  </span>
-                </div>
-              </button>
-              <div 
-                className="accordion-content"
-                style={{
-                  maxHeight: activeAccordion.notebook ? "100px" : "0px",
-                  overflow: "hidden",
-                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
-                }}
-              >
-                <div className="accordion-empty-text">Записей пока нет</div>
-              </div>
-            </div>
-
-            {/* 3. Проекты (Accordion) */}
-            <div className="accordion-section">
-              <button
-                className="side-sub-item"
-                onClick={() => setActiveAccordion(prev => ({ ...prev, projects: !prev.projects }))}
-                type="button"
-              >
-                <span className="ic material-symbols-outlined">workspaces</span>
-                <span>Проекты</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
-                  <span className="chat-overlay-badge">Скоро</span>
+          {isHistoryCardOpen && (
+            <div className="history-popup-card">
+              {/* Раздел: Проекты */}
+              <div className="card-section">
+                <button
+                  type="button"
+                  className="history-popup-projects-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveAccordion(prev => ({ ...prev, projects: !prev.projects }));
+                  }}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: "20px", color: "var(--ll-outline)" }}>workspaces</span>
+                  <span>Проекты</span>
+                  <span className="chat-overlay-badge" style={{ marginLeft: "auto" }}>Скоро</span>
                   <span 
                     className="material-symbols-outlined"
                     style={{ 
@@ -4310,98 +4708,117 @@ function Index() {
                   >
                     expand_more
                   </span>
-                </div>
-              </button>
-              <div 
-                className="accordion-content"
-                style={{
-                  maxHeight: activeAccordion.projects ? "100px" : "0px",
-                  overflow: "hidden",
-                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
-                }}
-              >
-                <div className="accordion-empty-text">Проектов пока нет</div>
-              </div>
-            </div>
-
-            {/* 4. История чатов (Accordion - раскрыта по умолчанию) */}
-            <div className="accordion-section">
-              <button
-                className="side-sub-item"
-                onClick={() => setActiveAccordion(prev => ({ ...prev, history: !prev.history }))}
-                type="button"
-              >
-                <span className="ic material-symbols-outlined">history</span>
-                <span>История чатов</span>
-                <span 
-                  className="material-symbols-outlined"
-                  style={{ 
-                    marginLeft: "auto",
-                    fontSize: "16px",
-                    transform: activeAccordion.history ? "rotate(180deg)" : "rotate(0deg)",
-                    transition: "transform 0.2s",
-                    color: "var(--ll-outline)"
+                </button>
+                <div 
+                  style={{
+                    maxHeight: activeAccordion.projects ? "80px" : "0px",
+                    overflow: "hidden",
+                    transition: "max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1)"
                   }}
                 >
-                  expand_more
-                </span>
-              </button>
-              <div 
-                className="accordion-content"
-                style={{
-                  maxHeight: activeAccordion.history ? "260px" : "0px",
-                  overflowY: activeAccordion.history ? "auto" : "hidden",
-                  transition: "max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "2px"
-                }}
-              >
-                {pastChats.length === 0 ? (
-                  <div className="accordion-empty-text italic">История пуста</div>
-                ) : (
-                  pastChats.map((chat) => (
-                    <button
-                      key={chat.id}
-                      onClick={() => {
-                        handleLoadChat(chat);
-                        setShowChatHistoryPanel(false);
-                        switchPageRef.current("breakdown");
-                      }}
-                      className={`side-sub-item-chat ${activeChatId === chat.id ? "active" : ""}`}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: "16px", opacity: 0.7 }}>chat_bubble</span>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                        {chat.title}
-                      </span>
-                    </button>
-                  ))
-                )}
+                  <div className="history-popup-projects-content">
+                    Проектов пока нет
+                  </div>
+                </div>
+              </div>
+
+              {/* Разделитель */}
+              <div className="history-popup-card-divider" />
+
+              {/* Раздел: Чаты */}
+              <div className="card-section" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div className="history-popup-section-title">
+                  <span>Чаты</span>
+                </div>
+                <div className="history-popup-chat-list">
+                  {pastChats.length === 0 ? (
+                    <div style={{ padding: "8px 12px", fontSize: "13px", color: "var(--ll-outline)", fontStyle: "italic" }}>
+                      История пуста
+                    </div>
+                  ) : (
+                    pastChats.slice(0, 25).map((chat) => {
+                      const getChatDateString = (chatId: string) => {
+                        try {
+                          const tsStr = chatId.replace("chat_", "");
+                          const ts = parseInt(tsStr, 10);
+                          if (!isNaN(ts)) {
+                            const date = new Date(ts);
+                            return date.toLocaleDateString("ru-RU", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "2-digit"
+                            });
+                          }
+                        } catch (e) {}
+                        return "";
+                      };
+                      
+                      return (
+                        <button
+                          key={chat.id}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleLoadChat(chat);
+                            setIsHistoryCardOpen(false);
+                            document.getElementById("sidebar")!.classList.remove("open");
+                            document.getElementById("sidebarBackdrop")!.classList.remove("open");
+                            document.body.classList.remove("sidebar-open");
+                            switchPageRef.current("breakdown");
+                          }}
+                          className={`side-sub-item-chat ${activeChatId === chat.id ? "active" : ""}`}
+                          style={{ paddingLeft: "12px", display: "flex", alignItems: "center", width: "100%" }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: "16px", opacity: 0.7, marginRight: "8px" }}>chat_bubble</span>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: "8px" }}>
+                            {chat.title}
+                          </span>
+                          <span style={{ fontSize: "11px", color: "var(--ll-outline)", opacity: 0.8, marginLeft: "auto", flexShrink: 0 }}>
+                            {getChatDateString(chat.id)}
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
+        </div>
 
-          <button className="side-item" data-page="library" type="button">
+        {/* Middle centered items */}
+        <nav style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px", justifyContent: "center" }}>
+          <button className={`side-item ${activePage === "breakdown" ? "active" : ""}`} data-page="breakdown" type="button" onClick={() => switchPageRef.current("breakdown")}>
+            <span className="ic material-symbols-outlined">chat_bubble</span>
+            <span data-i18n="nav.breakdown">Чат</span>
+          </button>
+          <button className="side-item" data-page="library" type="button" onClick={() => switchPageRef.current("library")}>
             <span className="ic material-symbols-outlined">book</span>
             <span data-i18n="nav.library">Мои слова</span>
           </button>
-          <button className="side-item" data-page="history" type="button">
+          <button className="side-item" data-page="history" type="button" onClick={() => switchPageRef.current("history")}>
             <span className="ic material-symbols-outlined">history</span>
-            <span data-i18n="nav.history">История</span>
+            <span data-i18n="nav.history">История разборов</span>
           </button>
-          <button className="side-item" data-page="top" type="button">
+          <button className="side-item" data-page="top" type="button" onClick={() => switchPageRef.current("top")}>
             <span className="ic material-symbols-outlined">workspace_premium</span>
             <span data-i18n="nav.top">Топ слов</span>
           </button>
+          <Link to="/training" className="side-item" style={{ textDecoration: "none" }}>
+            <span className="ic material-symbols-outlined">school</span>
+            <span data-i18n="nav.training">Тренировка</span>
+          </Link>
         </nav>
+
+        {/* Bottom Anchor: Аккаунт */}
         <div className="side-bottom">
-          <button className="side-item" data-page="account" type="button">
+          <button className="side-item" data-page="account" type="button" onClick={() => switchPageRef.current("account")}>
             <span className="ic material-symbols-outlined">account_circle</span>
             <span data-i18n="nav.account">Аккаунт</span>
           </button>
         </div>
       </aside>
-      <div className="sidebar-backdrop" id="sidebarBackdrop"></div>
+      <div className="sidebar-backdrop" id="sidebarBackdrop" onClick={closeSidebar}></div>
 
       <div className="wrap">
         {/* ── Spacer for fixed app bar ── */}
@@ -4495,35 +4912,94 @@ function Index() {
                 messages.map((msg) => {
                   if ((msg as any).type === "breakdown") {
                     return (
-                      <BreakdownMessage
+                      <div
                         key={msg.id}
-                        word={(msg as any).word || ""}
-                        breakdownData={(msg as any).breakdownData}
-                        isLoading={(msg as any).isLoading}
-                        domHandlersRef={domHandlersRef}
-                        lang="ru"
-                      />
+                        style={{
+                          opacity: isSelectionMode ? 0.45 : 1,
+                          transition: "opacity 0.25s ease",
+                          pointerEvents: isSelectionMode ? "none" : "auto"
+                        }}
+                      >
+                        <BreakdownMessage
+                          word={(msg as any).word || ""}
+                          breakdownData={(msg as any).breakdownData}
+                          isLoading={(msg as any).isLoading}
+                          domHandlersRef={domHandlersRef}
+                          lang="ru"
+                        />
+                      </div>
                     );
                   }
                   if (msg.role === "assistant" && !msg.content) {
                     return null;
                   }
+
+                  const isSelected = selectedMessageIds.includes(msg.id);
+                  const handleBubbleClick = () => {
+                    if (!isSelectionMode) return;
+                    setSelectedMessageIds(prev => {
+                      const updated = prev.includes(msg.id)
+                        ? prev.filter(id => id !== msg.id)
+                        : [...prev, msg.id];
+                      window.dispatchEvent(new CustomEvent("ln-selection-count-changed", {
+                        detail: { count: updated.length }
+                      }));
+                      return updated;
+                    });
+                  };
+
                   return (
                     <div
                       key={msg.id}
-                      className={`chat-message-bubble ${msg.role === "user" ? "user-bubble" : "bot-bubble"} glass-card fade-up`}
+                      onClick={handleBubbleClick}
+                      className={`chat-message-bubble ${msg.role === "user" ? "user-bubble" : "bot-bubble"} glass-card fade-up ${isSelectionMode ? "selection-mode-bubble" : ""} ${isSelected ? "selected-bubble" : ""}`}
                       style={{
                         width: "100%",
                         borderRadius: "24px",
                         padding: "20px 24px",
-                        boxSizing: "border-box"
+                        boxSizing: "border-box",
+                        cursor: isSelectionMode ? "pointer" : "default",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "16px",
+                        border: isSelected ? "1.5px solid var(--ll-primary)" : "1px solid rgba(255,255,255,0.15)",
+                        background: isSelected ? "rgba(48, 89, 185, 0.08)" : "var(--glass-fill)",
+                        transition: "all 0.2s ease"
                       }}
                     >
+                      {isSelectionMode && (
+                        <div
+                          className="selection-checkbox"
+                          style={{
+                            width: "22px",
+                            height: "22px",
+                            borderRadius: "6px",
+                            border: isSelected ? "none" : "2px solid var(--ll-outline)",
+                            background: isSelected ? "var(--ll-primary)" : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "#fff",
+                            fontSize: "14px",
+                            fontWeight: "bold",
+                            flexShrink: 0,
+                            transition: "all 0.15s ease"
+                          }}
+                        >
+                          {isSelected && (
+                            <span className="material-symbols-outlined" style={{ fontSize: "16px", fontWeight: "bold" }}>
+                              check
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      
                       <div
                         className="chat-message-content font-body-md"
                         style={{
                           color: "var(--text)",
-                          lineHeight: "1.6"
+                          lineHeight: "1.6",
+                          flex: 1
                         }}
                         dangerouslySetInnerHTML={{ __html: parseMarkdown(msg.content) }}
                       />
