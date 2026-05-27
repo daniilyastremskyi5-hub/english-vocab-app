@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liquid Glass Design System — Спецификация и UI-Кит</title>
+  
+  <!-- Google Fonts: Manrope -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@200;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Material Symbols Outlined for icons -->
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1@20..48px" rel="stylesheet">
+
+  <style>
+    /* =====================================================
+       DESIGN TOKENS (Direct copy of lev-nikol.css / styles.css)
+       ===================================================== */
+    :root {
+      /* Liquid Lexis color palette */
+      --ll-primary: #3059b9;
+      --ll-primary-hover: #1e3d8f;
+      --ll-secondary: #3d5f91;
+      --ll-on-surface: #181c20;
+      --ll-on-surface-variant: #434652;
+      --ll-outline: #747684;
+      --ll-outline-variant: #c4c6d4;
+
+      /* Glass layers spec */
+      --glass-fill: rgba(255, 255, 255, 0.45);
+      --glass-fill-strong: rgba(255, 255, 255, 0.60);
+      --glass-border: rgba(255, 255, 255, 0.70);
+      --glass-border-btn: rgba(255, 255, 255, 0.60);
+      --glass-shadow: 0 12px 32px rgba(48, 89, 185, 0.05);
+      --glass-shadow-btn: inset 0 1px 2px rgba(255, 255, 255, 0.5), 0 4px 12px rgba(48, 89, 185, 0.06);
+      --glass-panel-fill: rgba(255, 255, 255, 0.40);
+      
+      /* OKLCH equivalent models (from styles.css) */
+      --oklch-primary: oklch(0.432 0.165 259);
+      --oklch-background: oklch(0.978 0.008 250);
+      --oklch-card: oklch(1 0 0 / 45%);
+      --oklch-border: oklch(1 0 0 / 70%);
+
+      /* Spacing system */
+      --sp-float: 32px;
+      --sp-container: 24px;
+      --sp-gap: 16px;
+      --sp-stack: 12px;
+
+      /* Typography sizing */
+      --font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    }
+
+    /* Reset & Base styles */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      background: linear-gradient(to bottom, #a0c4ff 0%, #d8e5ff 40%, #ffffff 100%);
+      background-attachment: fixed;
+      color: var(--ll-on-surface);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      overflow-x: hidden;
+      display: flex;
+    }
+
+    /* Ambient animated parallax orbs */
+    .ln-orb {
+      position: fixed;
+      width: 700px;
+      height: 700px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0) 70%);
+      z-index: 0;
+      filter: blur(80px);
+      pointer-events: none;
+      will-change: transform;
+      transition: transform 0.2s cubic-bezier(0.1, 0.8, 0.2, 1);
+    }
+    #orb1 { top: -150px; left: -150px; }
+    #orb2 { bottom: -200px; right: -150px; }
+
+    /* Layout structure */
+    .app-container {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Left Sidebar: Frosted Glass */
+    .sidebar {
+      width: 320px;
+      height: 100%;
+      background: var(--glass-panel-fill);
+      backdrop-filter: blur(40px);
+      -webkit-backdrop-filter: blur(40px);
+      border-right: 1px solid rgba(255, 255, 255, 0.5);
+      padding: 40px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+      flex-shrink: 0;
+      z-index: 10;
+    }
+
+    .brand-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .brand-title {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ll-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-subtitle {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--ll-outline);
+    }
+
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      list-style: none;
+      flex-grow: 1;
+      overflow-y: auto;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 16px;
+      color: var(--ll-on-surface-variant);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      background: rgba(255, 255, 255, 0.35);
+      color: var(--ll-primary);
+    }
+
+    .nav-item.active {
+      background: rgba(255, 255, 255, 0.5);
+      border-color: rgba(255, 255, 255, 0.6);
+      box-shadow: 0 4px 12px rgba(48, 89, 185, 0.04);
+      color: var(--ll-primary);
+      font-weight: 700;
+    }
+
+    .nav-item .material-symbols-outlined {
+      font-size: 20px;
+      color: var(--ll-outline);
+      transition: color 0.2s ease;
+    }
+
+    .nav-item.active .material-symbols-outlined,
+    .nav-item:hover .material-symbols-outlined {
+      color: var(--ll-primary);
+    }
+
+    .sidebar-footer {
+      font-size: 12px;
+      color: var(--ll-outline);
+      line-height: 1.5;
+      border-top: 1px solid rgba(255, 255, 255, 0.25);
+      padding-top: 16px;
+    }
+
+    /* Main content container */
+    .main-content {
+      flex-grow: 1;
+      height: 100%;
+      overflow-y: auto;
+      padding: 40px 48px 80px;
+      scroll-behavior: smooth;
+    }
+
+    .section-view {
+      display: none;
+      animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .section-view.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* Typography & Headers */
+    h1.page-title {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--ll-primary);
+      margin-bottom: 8px;
+    }
+
+    p.page-description {
+      font-size: 16px;
+      color: var(--ll-on-surface-variant);
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .section-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ll-primary);
+      opacity: 0.8;
+      margin: 40px 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-header:first-of-type {
+      margin-top: 0;
+    }
+
+    /* Glass Cards Style */
+    .ds-card {
+      background: var(--glass-fill);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 24px;
+      box-shadow: var(--glass-shadow);
+      padding: 24px;
+      margin-bottom: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Token grid for Colors */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .color-card {
+      background: var(--glass-fill-strong);
+      border: 1px solid var(--glass-border-btn);
+      border-radius: 18px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: var(--glass-shadow-btn);
+    }
+
+    .color-card:hover {
+      transform: translateY(-4px) scale(1.02);
+      box-shadow: 0 8px 24px rgba(48, 89, 185, 0.08);
+      background: rgba(255, 255, 255, 0.75);
+    }
+
+    .color-swatch {
+      height: 100px;
+      border-radius: 12px;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.04);
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+    }
+
+    .color-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .color-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--ll-on-surface);
+    }
+
+    .color-var {
+      font-family: monospace;
+      font-size: 11px;
+      color: var(--ll-outline);
+    }
+
+    .color-hex {
+      font-family: monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--ll-primary);
+    }
+
+    /* Interactive Component Code Display */
+    .component-spec {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .component-preview {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.4) 100%);
+      border-radius: 16px;
+      border: 1px dashed rgba(255, 255, 255, 0.8);
+      position: relative;
+    }
+
+    .component-code {
+      display: flex;
+      flex-direction: column;
+      background: rgba(24, 28, 32, 0.04);
+      border-radius: 16px;
+      border: 1px solid rgba(0, 0, 0, 0.05);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .code-header {
+      background: rgba(24, 28, 32, 0.03);
+      padding: 8px 16px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--ll-outline);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .code-header button {
+      background: none;
+      border: none;
+      color: var(--ll-primary);
+      font-weight: 700;
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+
+    .code-header button:hover {
+      opacity: 0.8;
+    }
+
+    .code-pre {
+      padding: 16px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      color: var(--ll-on-surface-variant);
+      white-space: pre-wrap;
+      overflow-x: auto;
+      max-height: 240px;
+    }
+
+    /* Live components demo copy (directly from app structure) */
+    .glass-card-el {
+      background: var(--glass-fill);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      border-radius: 28px;
+      padding: 24px;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .glass-btn-el {
+      background: var(--glass-fill-strong);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--glass-border-btn);
+      box-shadow: var(--glass-shadow-btn);
+      color: var(--ll-primary);
+      font-family: var(--font-family);
+      font-weight: 600;
+      font-size: 14px;
+      padding: 10px 24px;
+      border-radius: 9999px;
+      cursor: pointer;
+      border: 1px solid var(--glass-border-btn);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .glass-btn-el:hover {
+      background: rgba(255, 255, 255, 0.75);
+      transform: translateY(-1px);
+    }
+
+    .glass-btn-el:active {
+      transform: scale(0.96);
+    }
+
+    .glass-input-el {
+      background: rgba(255, 255, 255, 0.4);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      border-radius: 9999px;
+      padding: 12px 20px;
+      color: var(--ll-on-surface);
+      font-family: var(--font-family);
+      font-size: 15px;
+      outline: none;
+      width: 100%;
+      transition: all 0.2s ease;
+    }
+
+    .glass-input-el:focus {
+      border-color: rgba(48, 89, 185, 0.4);
+      box-shadow: 0 0 0 3px rgba(48, 89, 185, 0.12);
+    }
+
+    /* Badges styles */
+    .badge-el {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      border: 1px solid transparent;
+      text-transform: uppercase;
+    }
+
+    .badge-el.cefr {
+      background: rgba(48, 89, 185, 0.08);
+      color: var(--ll-primary);
+      border-color: rgba(48, 89, 185, 0.15);
+    }
+
+    .badge-el.freq {
+      background: rgba(255, 255, 255, 0.5);
+      color: var(--ll-on-surface-variant);
+      border-color: rgba(255, 255, 255, 0.7);
+    }
+
+    /* Widget accordion card demo */
+    .widget-el {
+      border-radius: 24px;
+      overflow: hidden;
+      background: var(--glass-fill);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .widget-head-el {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+
+    .widget-head-el:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    .widget-icon-el {
+      font-size: 18px;
+      color: rgba(48, 89, 185, 0.6);
+      display: flex;
+      align-items: center;
+    }
+
+    .widget-title-el {
+      flex: 1;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(48, 89, 185, 0.85);
+    }
+
+    .widget-chevron-el {
+      color: rgba(48, 89, 185, 0.5);
+      display: flex;
+      align-items: center;
+      transition: transform 0.3s ease;
+    }
+
+    .widget-el.open .widget-chevron-el {
+      transform: rotate(180deg);
+    }
+
+    .widget-body-el {
+      height: 0;
+      overflow: hidden;
+      transition: height 0.3s ease;
+    }
+
+    .widget-el.open .widget-body-el {
+      height: auto;
+    }
+
+    .widget-content-el {
+      padding: 4px 20px 20px;
+      border-top: 1px solid rgba(255,255,255,0.4);
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--ll-on-surface);
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: rgba(24, 28, 32, 0.9);
+      color: white;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 1000;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      backdrop-filter: blur(8px);
+      opacity: 0;
+      transform: translateY(20px);
+      transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* Typo scale examples */
+    .typo-row {
+      display: flex;
+      align-items: baseline;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+      padding: 16px 0;
+    }
+
+    .typo-label {
+      width: 140px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--ll-outline);
+    }
+
+    .typo-preview {
+      flex-grow: 1;
+      color: var(--ll-on-surface);
+    }
+
+    .typo-spec {
+      width: 150px;
+      text-align: right;
+      font-family: monospace;
+      font-size: 12px;
+      color: var(--ll-outline);
+    }
+
+    /* Guides & Lists styling */
+    .list-guide {
+      margin-left: 20px;
+      margin-bottom: 16px;
+      line-height: 1.7;
+      color: var(--ll-on-surface-variant);
+    }
+
+    .list-guide li {
+      margin-bottom: 8px;
+    }
+
+    .step-badge {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      background: var(--ll-primary);
+      color: white;
+      text-align: center;
+      line-height: 24px;
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 700;
+      margin-right: 8px;
+    }
+
+    .step-row {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 20px;
+    }
+
+    .step-content {
+      flex-grow: 1;
+    }
+
+    .step-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ll-primary);
+      margin-bottom: 6px;
+    }
+
+    .step-desc {
+      font-size: 14px;
+      color: var(--ll-on-surface-variant);
+      line-height: 1.5;
+    }
+
+    /* Info callout */
+    .callout {
+      background: rgba(48, 89, 185, 0.05);
+      border-left: 4px solid var(--ll-primary);
+      border-radius: 0 16px 16px 0;
+      padding: 16px 20px;
+      margin: 16px 0;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--ll-on-surface-variant);
+    }
+
+    .callout strong {
+      color: var(--ll-primary);
+    }
+
+    /* Interactive playground tab contents */
+    .playground-area {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Orbs -->
+  <div class="ln-orb" id="orb1"></div>
+  <div class="ln-orb" id="orb2"></div>
+
+  <div class="app-container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="brand-section">
+        <div class="brand-title">
+          <span class="material-symbols-outlined" style="color: var(--ll-primary); font-size: 28px;">widgets</span>
+          Liquid Glass
+        </div>
+        <div class="brand-subtitle">Design System Kit</div>
+      </div>
+
+      <ul class="nav-list">
+        <li class="nav-item active" onclick="switchSection('tokens')">
+          <span class="material-symbols-outlined">palette</span>
+          Цветовые Токены
+        </li>
+        <li class="nav-item" onclick="switchSection('typography')">
+          <span class="material-symbols-outlined">text_fields</span>
+          Типографика
+        </li>
+        <li class="nav-item" onclick="switchSection('glassmorphism')">
+          <span class="material-symbols-outlined">blur_on</span>
+          Спецификация Glass
+        </li>
+        <li class="nav-item" onclick="switchSection('components')">
+          <span class="material-symbols-outlined">grid_view</span>
+          Компоненты UI
+        </li>
+        <li class="nav-item" onclick="switchSection('figma')">
+          <span class="material-symbols-outlined">draw</span>
+          Настройка в Figma
+        </li>
+        <li class="nav-item" onclick="switchSection('integration')">
+          <span class="material-symbols-outlined">code</span>
+          Экспорт в новые проекты
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <strong>Liquid Glass Spec v1.0</strong><br>
+        Используется в приложении Lev & Nikol для разбора слов.
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="main-content">
+      
+      <!-- Section: Tokens -->
+      <section id="tokens" class="section-view active">
+        <h1 class="page-title">Цветовые Токены (Design Tokens)</h1>
+        <p class="page-description">
+          Основа дизайн-системы Liquid Glass — это тщательно подобранные, мягкие и контрастные цвета. 
+          Все цвета выражены через CSS Custom Properties и используют современный формат <code>oklch</code> или стандартный <code>rgba</code> для прозрачностей. Кликните на карточку любого цвета, чтобы скопировать его переменную или hex-значение.
+        </p>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">water_drop</span> Основная Палитра
+        </div>
+        <div class="ds-card">
+          <div class="color-grid">
+            <!-- Primary Blue -->
+            <div class="color-card" onclick="copyColor('--ll-primary', '#3059b9')">
+              <div class="color-swatch" style="background: var(--ll-primary);"></div>
+              <div class="color-info">
+                <div class="color-name">Primary Blue</div>
+                <div class="color-var">var(--ll-primary)</div>
+                <div class="color-hex">#3059b9</div>
+              </div>
+            </div>
+            <!-- Secondary Navy -->
+            <div class="color-card" onclick="copyColor('--ll-secondary', '#3d5f91')">
+              <div class="color-swatch" style="background: var(--ll-secondary);"></div>
+              <div class="color-info">
+                <div class="color-name">Secondary Navy</div>
+                <div class="color-var">var(--ll-secondary)</div>
+                <div class="color-hex">#3d5f91</div>
+              </div>
+            </div>
+            <!-- On Surface Dark -->
+            <div class="color-card" onclick="copyColor('--ll-on-surface', '#181c20')">
+              <div class="color-swatch" style="background: var(--ll-on-surface);"></div>
+              <div class="color-info">
+                <div class="color-name">On Surface (Dark)</div>
+                <div class="color-var">var(--ll-on-surface)</div>
+                <div class="color-hex">#181c20</div>
+              </div>
+            </div>
+            <!-- On Surface Variant -->
+            <div class="color-card" onclick="copyColor('--ll-on-surface-variant', '#434652')">
+              <div class="color-swatch" style="background: var(--ll-on-surface-variant);"></div>
+              <div class="color-info">
+                <div class="color-name">Surface Variant</div>
+                <div class="color-var">var(--ll-on-surface-variant)</div>
+                <div class="color-hex">#434652</div>
+              </div>
+            </div>
+            <!-- Outline Muted -->
+            <div class="color-card" onclick="copyColor('--ll-outline', '#747684')">
+              <div class="color-swatch" style="background: var(--ll-outline);"></div>
+              <div class="color-info">
+                <div class="color-name">Outline / Muted</div>
+                <div class="color-var">var(--ll-outline)</div>
+                <div class="color-hex">#747684</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">layers</span> Стекло и Слои (Glass Transparency Spec)
+        </div>
+        <div class="ds-card">
+          <div class="color-grid">
+            <!-- Glass Fill -->
+            <div class="color-card" onclick="copyColor('--glass-fill', 'rgba(255, 255, 255, 0.45)')">
+              <div class="color-swatch" style="background: var(--glass-fill); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);"></div>
+              <div class="color-info">
+                <div class="color-name">Glass Card Fill</div>
+                <div class="color-var">var(--glass-fill)</div>
+                <div class="color-hex">rgba(255,255,255,0.45)</div>
+              </div>
+            </div>
+            <!-- Glass Fill Strong -->
+            <div class="color-card" onclick="copyColor('--glass-fill-strong', 'rgba(255, 255, 255, 0.60)')">
+              <div class="color-swatch" style="background: var(--glass-fill-strong); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);"></div>
+              <div class="color-info">
+                <div class="color-name">Glass Active Fill</div>
+                <div class="color-var">var(--glass-fill-strong)</div>
+                <div class="color-hex">rgba(255,255,255,0.60)</div>
+              </div>
+            </div>
+            <!-- Glass Border -->
+            <div class="color-card" onclick="copyColor('--glass-border', 'rgba(255, 255, 255, 0.70)')">
+              <div class="color-swatch" style="border: 2px solid var(--glass-border); background: transparent;"></div>
+              <div class="color-info">
+                <div class="color-name">Glass Card Border</div>
+                <div class="color-var">var(--glass-border)</div>
+                <div class="color-hex">rgba(255,255,255,0.70)</div>
+              </div>
+            </div>
+            <!-- Glass Panel Fill -->
+            <div class="color-card" onclick="copyColor('--glass-panel-fill', 'rgba(255, 255, 255, 0.40)')">
+              <div class="color-swatch" style="background: var(--glass-panel-fill); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);"></div>
+              <div class="color-info">
+                <div class="color-name">Sidebar Glass Panel</div>
+                <div class="color-var">var(--glass-panel-fill)</div>
+                <div class="color-hex">rgba(255,255,255,0.40)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Typography -->
+      <section id="typography" class="section-view">
+        <h1 class="page-title">Типографика (Typography)</h1>
+        <p class="page-description">
+          В системе дизайна используется современный геометрический гротеск <strong>Manrope</strong> с мягкими округлыми очертаниями, что отлично дополняет гладкую стеклянную эстетику.
+        </p>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">text_increase</span> Шрифтовая Сетка
+        </div>
+        <div class="ds-card">
+          <div class="typo-row">
+            <div class="typo-label">Brand Title</div>
+            <div class="typo-preview" style="font-size: 22px; font-weight: 800; letter-spacing: -0.03em;">Liquid Glass Title</div>
+            <div class="typo-spec">22px / Bold 800 / -0.03em</div>
+          </div>
+          <div class="typo-row">
+            <div class="typo-label">Page Title</div>
+            <div class="typo-preview" style="font-size: 32px; font-weight: 800; letter-spacing: -0.03em; color: var(--ll-primary);">Разбор Слова</div>
+            <div class="typo-spec">32px / Bold 800 / -0.03em</div>
+          </div>
+          <div class="typo-row">
+            <div class="typo-label">Card Chip Header</div>
+            <div class="typo-preview" style="font-size: 22px; font-weight: 400; letter-spacing: -0.02em;">extraordinary</div>
+            <div class="typo-spec">22px / Regular 400 / -0.02em</div>
+          </div>
+          <div class="typo-row">
+            <div class="typo-label">Widget Caption</div>
+            <div class="typo-preview" style="font-size: 12px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: var(--ll-primary);">КОНТЕКСТЫ УПОТРЕБЛЕНИЯ</div>
+            <div class="typo-spec">12px / Bold 700 / 0.1em</div>
+          </div>
+          <div class="typo-row">
+            <div class="typo-label">Body Text (Medium)</div>
+            <div class="typo-preview" style="font-size: 15px; font-weight: 500; line-height: 1.65;">Красивый и читаемый текст описания значения слова.</div>
+            <div class="typo-spec">15px / Medium 500 / 1.65lh</div>
+          </div>
+          <div class="typo-row">
+            <div class="typo-label">Body Muted / Tiny</div>
+            <div class="typo-preview" style="font-size: 13.5px; font-weight: 400; color: var(--ll-on-surface-variant);">Пример перевода или поясняющий сабтекст</div>
+            <div class="typo-spec">13.5px / Regular 400</div>
+          </div>
+        </div>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">edit_note</span> Интерактивный тест шрифта
+        </div>
+        <div class="ds-card">
+          <p style="margin-bottom: 12px; font-size: 14px; font-weight: 600; color: var(--ll-outline);">Введите текст ниже, чтобы проверить отображение:</p>
+          <input type="text" class="glass-input-el" value="Экстраординарный разбор английских идиом и словосочетаний с Lev & Nikol" style="margin-bottom: 16px;" oninput="updateFontPreview(this.value)">
+          <div id="font-tester" style="font-size: 20px; font-weight: 500; line-height: 1.5; color: var(--ll-primary); padding: 16px; background: rgba(255,255,255,0.3); border-radius: 12px; border: 1px solid rgba(255,255,255,0.4);">
+            Экстраординарный разбор английских идиом и словосочетаний с Lev & Nikol
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Glassmorphism -->
+      <section id="glassmorphism" class="section-view">
+        <h1 class="page-title">Спецификация Glassmorphism (Стекло)</h1>
+        <p class="page-description">
+          Вся эстетика Liquid Glass строится на "живом" размытии заднего фона с эффектом матового остекления. 
+          Чтобы эффект выглядел премиально и не мешал чтению, соблюдаются строгие правила наложения теней, белых полупрозрачных границ и степени размытия.
+        </p>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">layers_clear</span> Спецификация Слоя матового стекла (Glass Layer)
+        </div>
+        <div class="ds-card" style="padding: 32px;">
+          <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div>
+              <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">1. Задний фон (Background Gradient)</h3>
+              <p style="font-size: 14px; line-height: 1.6; color: var(--ll-on-surface-variant);">
+                Стекло работает только на контрастном или цветном фоне. Фон приложения — это мягкий градиент: <br>
+                <code>linear-gradient(to bottom, #a0c4ff 0%, #d8e5ff 40%, #ffffff 100%)</code>.
+              </p>
+            </div>
+            
+            <div style="border-top: 1px solid rgba(255,255,255,0.4); padding-top: 20px;">
+              <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">2. Заливка стекла (Fill)</h3>
+              <p style="font-size: 14px; line-height: 1.6; color: var(--ll-on-surface-variant);">
+                <strong>Для стандартной карточки (Glass Card):</strong> Чистый белый цвет с прозрачностью 45% (<code>rgba(255, 255, 255, 0.45)</code>). <br>
+                <strong>Для интерактивных элементов при наведении/активных (Active/Strong):</strong> Белый цвет с прозрачностью 60% (<code>rgba(255, 255, 255, 0.6)</code>).
+              </p>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.4); padding-top: 20px;">
+              <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">3. Размытие фона (Backdrop Blur)</h3>
+              <p style="font-size: 14px; line-height: 1.6; color: var(--ll-on-surface-variant);">
+                Обязательное условие матовости — размытие контента под карточкой. <br>
+                <code>backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);</code>
+              </p>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.4); padding-top: 20px;">
+              <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">4. Граница (Specular Highlight Border)</h3>
+              <p style="font-size: 14px; line-height: 1.6; color: var(--ll-on-surface-variant);">
+                Тонкая светлая обводка имитирует блик на грани стекла. <br>
+                <code>border: 1px solid rgba(255, 255, 255, 0.70);</code>
+              </p>
+            </div>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.4); padding-top: 20px;">
+              <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">5. Тень (Soft Ambient Shadow)</h3>
+              <p style="font-size: 14px; line-height: 1.6; color: var(--ll-on-surface-variant);">
+                Очень мягкая, размытая тень синего оттенка, которая не грязнит интерфейс: <br>
+                <code>box-shadow: 0 12px 32px rgba(48, 89, 185, 0.05);</code>
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Components -->
+      <section id="components" class="section-view">
+        <h1 class="page-title">Компоненты UI (UI Components Kit)</h1>
+        <p class="page-description">
+          Ниже представлены основные строительные блоки интерфейса. Вы можете посмотреть их в действии, скопировать чистый HTML и переиспользовать в сторонних редакторах или коде.
+        </p>
+
+        <!-- Component 1: Glass Card -->
+        <div class="section-header">
+          <span class="material-symbols-outlined">credit_card</span> Glass Card (Основная стеклянная карточка)
+        </div>
+        <div class="ds-card">
+          <div class="component-spec">
+            <div class="component-preview">
+              <div class="glass-card-el" style="max-width: 320px;">
+                <h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;">Карточка из Стекла</h3>
+                <p style="font-size: 14px; color: var(--ll-on-surface-variant); line-height: 1.5; margin-bottom: 12px;">Стеклянный контейнер с мягкой полупрозрачной тенью и размытием.</p>
+                <div class="badge-el cefr">A1</div>
+              </div>
+            </div>
+            <div class="component-code">
+              <div class="code-header">
+                <span>HTML Code</span>
+                <button onclick="copyCodeText('code-glass-card')">
+                  <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Copy
+                </button>
+              </div>
+              <pre class="code-pre" id="code-glass-card">&lt;div class="glass-card"&gt;
+  &lt;h3 style="font-size: 18px; font-weight: 700; color: var(--ll-primary); margin-bottom: 8px;"&gt;Карточка&lt;/h3&gt;
+  &lt;p style="font-size: 14px; color: var(--ll-on-surface-variant);"&gt;Контент карточки...&lt;/p&gt;
+&lt;/div&gt;</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Component 2: Glass Button -->
+        <div class="section-header">
+          <span class="material-symbols-outlined">smart_button</span> Glass Button (Стеклянная кнопка)
+        </div>
+        <div class="ds-card">
+          <div class="component-spec">
+            <div class="component-preview">
+              <button class="glass-btn-el">
+                Сохранить
+                <span class="material-symbols-outlined" style="font-size: 18px;">arrow_forward</span>
+              </button>
+            </div>
+            <div class="component-code">
+              <div class="code-header">
+                <span>HTML Code</span>
+                <button onclick="copyCodeText('code-glass-btn')">
+                  <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Copy
+                </button>
+              </div>
+              <pre class="code-pre" id="code-glass-btn">&lt;button class="glass-button"&gt;
+  Сохранить 
+  &lt;span class="material-symbols-outlined"&gt;arrow_forward&lt;/span&gt;
+&lt;/button&gt;</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Component 3: Glass Input -->
+        <div class="section-header">
+          <span class="material-symbols-outlined">edit_square</span> Search Input (Поле ввода / Поиск)
+        </div>
+        <div class="ds-card">
+          <div class="component-spec">
+            <div class="component-preview">
+              <input type="text" class="glass-input-el" placeholder="Введите слово...">
+            </div>
+            <div class="component-code">
+              <div class="code-header">
+                <span>HTML Code</span>
+                <button onclick="copyCodeText('code-glass-input')">
+                  <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Copy
+                </button>
+              </div>
+              <pre class="code-pre" id="code-glass-input">&lt;input type="text" class="glass-input" placeholder="Введите слово..." /&gt;</pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Component 4: Accordion Widget -->
+        <div class="section-header">
+          <span class="material-symbols-outlined">expand_more</span> Accordion Widget (Виджет аккордеона)
+        </div>
+        <div class="ds-card">
+          <div class="component-spec">
+            <div class="component-preview">
+              <div class="widget-el open" id="demo-widget" onclick="toggleWidgetDemo()">
+                <div class="widget-head-el">
+                  <span class="material-symbols-outlined widget-icon-el">translate</span>
+                  <span class="widget-title-el">Определение слова</span>
+                  <span class="material-symbols-outlined widget-chevron-el">expand_more</span>
+                </div>
+                <div class="widget-body-el" style="height: auto;">
+                  <div class="widget-content-el">
+                    <p style="margin-bottom: 8px;"><strong>extraordinary</strong> — исключительный, выдающийся.</p>
+                    <p style="color: var(--ll-on-surface-variant); font-size: 13px;">Используется для описания вещей, выходящих за рамки привычного.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="component-code">
+              <div class="code-header">
+                <span>HTML Code</span>
+                <button onclick="copyCodeText('code-widget')">
+                  <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Copy
+                </button>
+              </div>
+              <pre class="code-pre" id="code-widget">&lt;div class="widget open"&gt;
+  &lt;div class="widget-head"&gt;
+    &lt;span class="material-symbols-outlined widget-icon"&gt;translate&lt;/span&gt;
+    &lt;span class="widget-title"&gt;Определение&lt;/span&gt;
+    &lt;span class="material-symbols-outlined widget-chevron"&gt;expand_more&lt;/span&gt;
+  &lt;/div&gt;
+  &lt;div class="widget-body"&gt;
+    &lt;div class="widget-content"&gt;
+      &lt;div class="widget-content-inner"&gt;
+        &lt;p&gt;Контент виджета...&lt;/p&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Figma Guide -->
+      <section id="figma" class="section-view">
+        <h1 class="page-title">Настройка системы дизайна в Figma</h1>
+        <p class="page-description">
+          Чтобы проектировать новые страницы в Figma или любом другом графическом редакторе, вам нужно воссоздать эти эффекты и токены в качестве библиотек стилей.
+        </p>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">tune</span> 1. Глобальные Стили Цвета (Local Styles / Variables)
+        </div>
+        <div class="ds-card">
+          <p style="font-size: 15px; line-height: 1.6; margin-bottom: 12px; color: var(--ll-on-surface-variant);">
+            Создайте в Figma следующие цветовые переменные (Variables):
+          </p>
+          <ul class="list-guide">
+            <li><strong>Primary Blue:</strong> #3059b9</li>
+            <li><strong>Secondary Navy:</strong> #3d5f91</li>
+            <li><strong>On Surface:</strong> #181c20</li>
+            <li><strong>On Surface Variant:</strong> #434652</li>
+            <li><strong>Outline:</strong> #747684</li>
+            <li><strong>Outline Variant:</strong> #c4c6d4</li>
+            <li><strong>Glass Fill:</strong> #FFFFFF (Прозрачность: 45%)</li>
+            <li><strong>Glass Fill Strong:</strong> #FFFFFF (Прозрачность: 60%)</li>
+            <li><strong>Background Gradient:</strong> Линейный градиент сверху вниз:
+              <ul style="margin-left: 20px; font-size: 13.5px; margin-top: 4px;">
+                <li>0% — #a0c4ff</li>
+                <li>40% — #d8e5ff</li>
+                <li>100% — #ffffff</li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">filter_frames</span> 2. Воссоздание Матового Стекла (Glassmorphism Effect)
+        </div>
+        <div class="ds-card">
+          <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px; color: var(--ll-on-surface-variant);">
+            В Figma эффект матового стекла создается с помощью <strong>Effects</strong> и правильной настройки <strong>Stroke</strong>. Следуйте этой инструкции:
+          </p>
+          
+          <div class="step-row">
+            <div class="step-badge">1</div>
+            <div class="step-content">
+              <div class="step-title">Создайте прямоугольник со скруглением</div>
+              <div class="step-desc">Скругление углов (Corner Radius) установите равным <strong>24px</strong> или <strong>28px</strong>.</div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-badge">2</div>
+            <div class="step-content">
+              <div class="step-title">Настройте заливку (Fill)</div>
+              <div class="step-desc">Цвет заливки: <strong>#FFFFFF</strong>, непрозрачность (Opacity): <strong>45%</strong>.</div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-badge">3</div>
+            <div class="step-content">
+              <div class="step-title">Добавьте обводку (Stroke)</div>
+              <div class="step-desc">Обводка: толщина <strong>1px</strong>, цвет <strong>#FFFFFF</strong>, непрозрачность: <strong>70%</strong>, тип наложения: <strong>Inside</strong>. Это создает глянцевый блик по краям карточки.</div>
+            </div>
+          </div>
+
+          <div class="step-row">
+            <div class="step-badge">4</div>
+            <div class="step-content">
+              <div class="step-title">Добавьте эффекты (Effects)</div>
+              <div class="step-desc">
+                Примените два эффекта: <br>
+                • <strong>Background Blur:</strong> размытие <strong>20px</strong> (создает матовость заднего фона). <br>
+                • <strong>Drop Shadow:</strong> цвет <strong>#3059B9</strong> (основной синий), прозрачность: <strong>5%</strong>, смещение по Y: <strong>12px</strong>, размытие Blur: <strong>32px</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Integration -->
+      <section id="integration" class="section-view">
+        <h1 class="page-title">Перенос дизайна в другое приложение</h1>
+        <p class="page-description">
+          Чтобы скопировать этот интерфейс в другое веб-приложение или разработать новые страницы на чистом HTML/CSS, вам понадобится перенести базовую структуру стилей.
+        </p>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">description</span> 1. Базовые CSS-переменные (Скопируйте в свой стили)
+        </div>
+        <div class="ds-card" style="padding: 0;">
+          <div class="code-header">
+            <span>CSS Variables</span>
+            <button onclick="copyCodeText('code-integration-css')">
+              <span class="material-symbols-outlined" style="font-size: 14px;">content_copy</span> Copy CSS
+            </button>
+          </div>
+          <pre class="code-pre" id="code-integration-css" style="max-height: 400px;">:root {
+  /* Цветовая палитра Liquid Glass */
+  --ll-primary: #3059b9;
+  --ll-secondary: #3d5f91;
+  --ll-on-surface: #181c20;
+  --ll-on-surface-variant: #434652;
+  --ll-outline: #747684;
+  --ll-outline-variant: #c4c6d4;
+
+  /* Стекло и матовость */
+  --glass-fill: rgba(255, 255, 255, 0.45);
+  --glass-fill-strong: rgba(255, 255, 255, 0.60);
+  --glass-border: rgba(255, 255, 255, 0.70);
+  --glass-border-btn: rgba(255, 255, 255, 0.60);
+  --glass-shadow: 0 12px 32px rgba(48, 89, 185, 0.05);
+  --glass-shadow-btn: inset 0 1px 2px rgba(255, 255, 255, 0.5), 0 4px 12px rgba(48, 89, 185, 0.06);
+}
+
+body {
+  background: linear-gradient(to bottom, #a0c4ff 0%, #d8e5ff 40%, #ffffff 100%);
+  background-attachment: fixed;
+  color: var(--ll-on-surface);
+  font-family: 'Manrope', sans-serif;
+  min-height: 100vh;
+}
+
+/* Спецификация стеклянной карточки */
+.glass-card {
+  background: var(--glass-fill);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: 28px;
+  padding: 24px;
+}
+
+/* Спецификация стеклянной кнопки */
+.glass-button {
+  background: var(--glass-fill-strong);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border-btn);
+  box-shadow: var(--glass-shadow-btn);
+  color: var(--ll-primary);
+  font-family: inherit;
+  font-weight: 600;
+  padding: 10px 24px;
+  border-radius: 9999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.glass-button:active {
+  transform: scale(0.96);
+}</pre>
+        </div>
+
+        <div class="section-header">
+          <span class="material-symbols-outlined">terminal</span> 2. Интеграция с Tailwind CSS (Версия 4)
+        </div>
+        <div class="ds-card">
+          <p style="font-size: 15px; line-height: 1.6; margin-bottom: 16px; color: var(--ll-on-surface-variant);">
+            Если вы переносите дизайн в приложение, использующее Tailwind v4 (как текущее приложение на React/Vite), импортируйте переменные прямо в вашу тему в <code>styles.css</code>:
+          </p>
+          
+          <pre style="background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05); padding: 16px; border-radius: 12px; font-family: monospace; font-size: 13px; color: var(--ll-on-surface-variant); line-height: 1.5;">@theme {
+  --color-primary: var(--ll-primary);
+  --color-secondary: var(--ll-secondary);
+  --color-card: var(--glass-fill);
+  --color-border: var(--glass-border);
+  --radius-lg: 24px;
+  --radius-xl: 28px;
+}</pre>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <!-- Toast Popups for copy confirmation -->
+  <div id="toast" class="toast">
+    <span class="material-symbols-outlined" style="color: #4caf50;">check_circle</span>
+    <span id="toast-text">Скопировано в буфер обмена</span>
+  </div>
+
+  <script>
+    // Tab switching logic
+    function switchSection(sectionId) {
+      // Deactivate all sections and nav items
+      document.querySelectorAll('.section-view').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+
+      // Activate selected section
+      document.getElementById(sectionId).classList.add('active');
+      
+      // Highlight matching nav item
+      const navItems = Array.from(document.querySelectorAll('.nav-item'));
+      const activeNav = navItems.find(item => item.getAttribute('onclick').includes(sectionId));
+      if (activeNav) activeNav.classList.add('active');
+
+      // Scroll main content back to top
+      document.querySelector('.main-content').scrollTop = 0;
+    }
+
+    // Parallax Orb Mouse Effect
+    document.addEventListener('mousemove', (e) => {
+      const x = (e.clientX / window.innerWidth) * 40;
+      const y = (e.clientY / window.innerHeight) * 40;
+      
+      document.getElementById('orb1').style.transform = `translate(${x * 0.4}px, ${y * 0.4}px)`;
+      document.getElementById('orb2').style.transform = `translate(${x * 0.8}px, ${y * 0.8}px)`;
+    });
+
+    // Copy to Clipboard Confirmations
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-text').innerText = message;
+      toast.classList.add('show');
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
+    }
+
+    function copyColor(varName, hexVal) {
+      navigator.clipboard.writeText(hexVal).then(() => {
+        showToast(`Скопировано: ${hexVal} (${varName})`);
+      });
+    }
+
+    function copyCodeText(preId) {
+      const codeText = document.getElementById(preId).innerText;
+      navigator.clipboard.writeText(codeText).then(() => {
+        showToast('Код успешно скопирован в буфер обмена!');
+      });
+    }
+
+    // Typography Interactive tester
+    function updateFontPreview(text) {
+      document.getElementById('font-tester').innerText = text || 'Введите текст...';
+    }
+
+    // Interactive accordion demo
+    function toggleWidgetDemo() {
+      const widget = document.getElementById('demo-widget');
+      const body = widget.querySelector('.widget-body-el');
+      
+      if (widget.classList.contains('open')) {
+        widget.classList.remove('open');
+        body.style.height = '0px';
+      } else {
+        widget.classList.add('open');
+        body.style.height = '80px';
+      }
+    }
+  </script>
+</body>
+</html>

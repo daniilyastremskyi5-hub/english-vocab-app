@@ -1,6 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
-import { LIGHT_BREAKDOWN_PROMPT, FULL_BREAKDOWN_PROMPT, SENTENCE_BREAKDOWN_PROMPT, CHAT_PROMPT, DIGEST_PROMPT } from "./-prompts";
+import { LIGHT_BREAKDOWN_PROMPT, FULL_BREAKDOWN_PROMPT, SENTENCE_BREAKDOWN_PROMPT, CHAT_PROMPT, DIGEST_PROMPT, CARDS_PROMPT } from "./-prompts";
+
+const MODELS = {
+  sonnet: "claude-sonnet-4-6",
+  haikuChat: "claude-haiku-4-5",
+  haikuCards: "claude-haiku-4-5-20251001"
+};
 
 function cleanAndParseJson(text: string): any {
   let cleaned = text.trim();
@@ -44,7 +50,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
       POST: async ({ request }) => {
         let { input, mode, canonical, pos, type, messages } = (await request.json()) as { 
           input?: string; 
-          mode: "light" | "full" | "sentence" | "chat" | "digest";
+          mode: "light" | "full" | "sentence" | "chat" | "digest" | "cards";
           canonical?: string;
           pos?: string;
           type?: string;
@@ -52,7 +58,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
         };
         
         mode = mode || "light";
-        const model = mode === "chat" ? "claude-haiku-4-5" : "claude-sonnet-4-6";
+        const model = mode === "chat" ? MODELS.haikuChat : MODELS.sonnet;
         const apiKey = process.env.ANTHROPIC_API_KEY;
         console.log(`[AI-Breakdown] Request received. Mode: "${mode}", Input: "${input || ''}", Canonical: "${canonical || ''}"`);
         console.log(`[AI-Breakdown] process.env.SUPABASE_URL: "${process.env.SUPABASE_URL || ''}"`);
@@ -262,6 +268,12 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                         console.error(`[AI-Breakdown] [DATABASE ERROR] Failed to save light_json to word_breakdowns:`, breakdownErr);
                       } else {
                         console.log(`[AI-Breakdown] [SUCCESS] Saved light_json to word_breakdowns for canonical "${canon}".`);
+                        // Safely clear cached cards_json in a separate query to prevent blocking breakdown save
+                        try {
+                          await supabaseClient.from("word_breakdowns").update({ cards_json: null }).eq("canonical", canon);
+                        } catch (cardsClearErr) {
+                          console.warn("[AI-Breakdown] Safe cards invalidation warning:", cardsClearErr);
+                        }
                       }
                     } else {
                       console.log(`[AI-Breakdown] Claude response is not a word mode. Mode: "${parsedLight.mode || ''}". Skip database caching.`);
@@ -461,7 +473,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  model: "claude-sonnet-4-6", // use Sonnet for breakdowns
+                  model: MODELS.sonnet, // use Sonnet for breakdowns
                   max_tokens: 4096,
                   stream: true,
                   system: [
@@ -583,7 +595,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  model: "claude-sonnet-4-6", // use Sonnet for breakdowns
+                  model: MODELS.sonnet, // use Sonnet for breakdowns
                   max_tokens: 4096,
                   stream: true,
                   system: [
@@ -664,7 +676,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "claude-haiku-4-5", // use Haiku for chats
+                model: MODELS.haikuChat, // use Haiku for chats
                 max_tokens: 1024,
                 stream: true,
                 system: [
@@ -745,7 +757,7 @@ export const Route = createFileRoute("/api/ai-breakdown")({
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "claude-sonnet-4-6", // strictly use Sonnet as requested
+              model: MODELS.sonnet, // strictly use Sonnet as requested
               max_tokens: 4096,
               stream: true,
               system: [
@@ -801,12 +813,234 @@ export const Route = createFileRoute("/api/ai-breakdown")({
               controller.close();
             }
           });
-
           const streamHeaders: Record<string, string> = {
-            "Content-Type": "text/plain; charset=utf-8",
-            "Cache-Control": "no-cache, no-transform",
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
           };
           return new Response(stream, { headers: streamHeaders });
+        } else if (mode === "cards") {
+          if (!canonical) {
+            return new Response("Missing canonical for cards mode", { status: 400 });
+          }
+          const canon = canonical.trim();
+          console.log(`[AI-Breakdown] Running cards mode for canonical: "${canon}"`);
+
+          let breakdownRow: any = null;
+          let cardsJsonFromCache: any = null;
+          
+          if (supabaseClient) {
+            try {
+              // try/catch wrapper on SELECT cards_json to guard against missing column
+              const { data, error } = await supabaseClient
+                .from("word_breakdowns")
+                .select("cards_json, light")
+                .eq("canonical", canon)
+                .single();
+              
+              if (!error && data) {
+                breakdownRow = data;
+                if (data.cards_json) {
+                  cardsJsonFromCache = data.cards_json;
+                }
+              } else if (error && error.code !== "PGRST116") {
+                console.warn(`[AI-Breakdown] [DATABASE SELECT WARNING] Failed to select from word_breakdowns:`, error);
+              }
+            } catch (e) {
+              console.warn(`[AI-Breakdown] [DATABASE SELECT EXCEPTION] Caught exception during SELECT:`, e);
+            }
+          }
+
+          // 1. Check if cards_json is already in cache
+          if (cardsJsonFromCache) {
+            console.log(`[AI-Breakdown] Cache HIT (cards_json) for canonical "${canon}". Returning cached cards.`);
+            return new Response(JSON.stringify(cardsJsonFromCache), { headers });
+          }
+
+          // 2. Get/generate the word breakdown (pillars)
+          let pillars = breakdownRow?.light?.pillars || null;
+          if (!pillars) {
+            console.log(`[AI-Breakdown] Cache MISS (light breakdown) for cards of "${canon}". Generating breakdown first...`);
+            
+            // Call Anthropic to generate the breakdown
+            const upstreamBreakdown = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: MODELS.sonnet,
+                max_tokens: 4096,
+                system: [
+                  {
+                    type: "text",
+                    text: LIGHT_BREAKDOWN_PROMPT,
+                  },
+                ],
+                messages: [
+                  {
+                    role: "user",
+                    content: `Ввод: "${canon}"`,
+                  },
+                ],
+              }),
+            });
+
+            if (!upstreamBreakdown.ok) {
+              const errText = await upstreamBreakdown.text();
+              console.error("[AI-Breakdown] Failed to generate fallback breakdown:", errText);
+              return new Response(errText || "Anthropic breakdown generation error", { status: upstreamBreakdown.status });
+            }
+
+            const breakdownData = await upstreamBreakdown.json();
+            const breakdownText = breakdownData.content?.[0]?.text || "";
+            const parsedLight = cleanAndParseJson(breakdownText);
+
+            if (parsedLight && parsedLight.pillars) {
+              pillars = parsedLight.pillars;
+              // Save generated breakdown to cache
+              if (supabaseClient) {
+                try {
+                  const updatePayload = {
+                    canonical: canon,
+                    updated_at: new Date().toISOString(),
+                    light: parsedLight
+                  };
+                  await supabaseClient.from("word_breakdowns").upsert(updatePayload);
+                  
+                  // Safely clear cached cards_json in a separate query
+                  try {
+                    await supabaseClient.from("word_breakdowns").update({ cards_json: null }).eq("canonical", canon);
+                  } catch (cardsClearErr) {
+                    console.warn("[AI-Breakdown] Safe cards invalidation warning in fallback:", cardsClearErr);
+                  }
+                  
+                  // Also upsert an input alias for lowercase form
+                  const canonLower = canon.toLowerCase().trim();
+                  await supabaseClient.from("input_aliases").upsert({
+                    input: canonLower,
+                    canonical: canon,
+                    type: parsedLight.type || "common_verb",
+                    pos: parsedLight.pos || "verb",
+                    note: null,
+                    valid: true
+                  });
+                } catch (dbErr) {
+                  console.error("[AI-Breakdown] Failed to save fallback breakdown to DB:", dbErr);
+                }
+              }
+            } else {
+              return new Response("Generated breakdown format invalid", { status: 500 });
+            }
+          }
+
+          // 3. Call prompt_cards.md to package pillars into cards_json
+          console.log(`[AI-Breakdown] Calling cards builder for "${canon}" with ${pillars.length} pillars...`);
+          const upstreamCards = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": apiKey,
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: MODELS.haikuCards,
+              max_tokens: 4096,
+              system: [
+                {
+                  type: "text",
+                  text: CARDS_PROMPT,
+                },
+              ],
+              messages: [
+                {
+                  role: "user",
+                  content: JSON.stringify({ canonical: canon, pillars }),
+                },
+              ],
+            }),
+          });
+
+          if (!upstreamCards.ok) {
+            const errText = await upstreamCards.text();
+            console.error("[AI-Breakdown] Failed to generate cards:", errText);
+            return new Response(errText || "Anthropic cards generation error", { status: upstreamCards.status });
+          }
+
+          const cardsData = await upstreamCards.json();
+          const cardsText = cardsData.content?.[0]?.text || "";
+          
+          // 4. Strip JSON code fences before parsing
+          let cleanedCardsText = cardsText.trim();
+          cleanedCardsText = cleanedCardsText.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+          
+          let parsedCards: any = null;
+          try {
+            parsedCards = JSON.parse(cleanedCardsText);
+          } catch (jsonErr) {
+            console.warn("[AI-Breakdown] JSON.parse failed. Retrying with first outer brackets extraction.", jsonErr);
+            const startIdx = cleanedCardsText.indexOf("{");
+            const endIdx = cleanedCardsText.lastIndexOf("}");
+            if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+              parsedCards = JSON.parse(cleanedCardsText.slice(startIdx, endIdx + 1));
+            } else {
+              throw jsonErr;
+            }
+          }
+
+          // 5. Example Validation Sanity Checks (Haiku sanity check)
+          if (parsedCards && Array.isArray(parsedCards.cards)) {
+            parsedCards.cards = parsedCards.cards.map((card: any) => {
+              if (card.type === "meaning") {
+                // Ensure examples array is non-empty and well-formed
+                if (!Array.isArray(card.examples) || card.examples.length === 0) {
+                  card.examples = [{ ru: "Пример перевода", en: "Example usage" }];
+                } else {
+                  card.examples = card.examples.map((ex: any) => ({
+                    ru: ex.ru ? String(ex.ru).trim() : "Пример перевода",
+                    en: ex.en ? String(ex.en).trim() : "Example usage"
+                  }));
+                }
+              } else if (card.type === "container" && Array.isArray(card.chips)) {
+                card.chips = card.chips.map((chip: any) => {
+                  if (!Array.isArray(chip.examples) || chip.examples.length === 0) {
+                    chip.examples = [{ ru: "Пример перевода", en: "Example usage" }];
+                  } else {
+                    chip.examples = chip.examples.map((ex: any) => ({
+                      ru: ex.ru ? String(ex.ru).trim() : "Пример перевода",
+                      en: ex.en ? String(ex.en).trim() : "Example usage"
+                    }));
+                  }
+                  return chip;
+                });
+              }
+              return card;
+            });
+          }
+
+          // 6. Safe database Cache UPSERT
+          if (supabaseClient) {
+            try {
+              // Wrap UPSERT in try/catch to absorb missing column errors
+              const updatePayload = {
+                canonical: canon,
+                updated_at: new Date().toISOString(),
+                cards_json: parsedCards
+              };
+              const { error } = await supabaseClient.from("word_breakdowns").upsert(updatePayload);
+              if (error) {
+                console.warn(`[AI-Breakdown] [DATABASE UPSERT WARNING] Failed to cache cards_json:`, error);
+              } else {
+                console.log(`[AI-Breakdown] Cache SAVE (cards_json) for canonical "${canon}" succeeded.`);
+              }
+            } catch (dbErr) {
+              console.warn("[AI-Breakdown] [DATABASE UPSERT EXCEPTION] Caught exception during UPSERT:", dbErr);
+            }
+          }
+
+          return new Response(JSON.stringify(parsedCards), { headers });
         }
         
         return new Response("Unknown mode", { status: 400 });

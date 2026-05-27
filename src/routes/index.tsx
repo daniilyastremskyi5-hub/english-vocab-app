@@ -1786,10 +1786,20 @@ function Index() {
         const icon = mapKeyToIcon(p.key);
         const isActive = p.key === activeTab;
         const delay = idx * 100; // 100ms cascade delay
+
+        const statsKey = (p.key === "translation" || p.key === "meanings") ? "meanings" : p.key;
+        const word = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+        const stats = getWordRatingsStats(word, data);
+        const pct = (stats.pillars as any)[statsKey];
+        const pctHtml = (pct !== undefined && ["meanings", "family", "alternatives", "phrases"].includes(statsKey))
+          ? `<span class="pillar-pct" style="margin-left: 6px; font-weight: 700; font-size: 11px; background: ${isActive ? "rgba(255,255,255,0.2)" : "rgba(48,89,185,0.08)"}; border: 1px solid ${isActive ? "rgba(255,255,255,0.3)" : "rgba(48,89,185,0.15)"}; padding: 1px 5px; border-radius: 6px; color: ${isActive ? "inherit" : "var(--ll-primary)"}; transition: all 0.2s ease;">${pct}%</span>`
+          : "";
+
         return `
           <button class="pillar-tab ${isActive ? "active" : ""}" data-key="${escapeHtml(p.key)}" style="animation-delay: ${delay}ms;">
             <span class="pillar-icon">${icon}</span>
             <span class="pillar-label">${escapeHtml(p.label)}</span>
+            ${pctHtml}
           </button>
         `;
       }).join("");
@@ -1918,6 +1928,7 @@ function Index() {
             head.innerHTML = `
               <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
                 <div class="wc-word">${escapeHtml(word)}</div>
+                ${renderKnowledgeBadge(word, data)}
                 <button class="sound-btn" data-text="${escapeHtml(word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
                   <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
                 </button>
@@ -1950,6 +1961,40 @@ function Index() {
                 head.appendChild(transDiv);
               }
               transDiv.textContent = translation;
+            }
+            // Ensure we have/update the knowledge badge in the existing wc-word-row!
+            const word = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+            let wordRow = head.querySelector(".wc-word-row") as HTMLElement | null;
+            if (wordRow) {
+              let badgeEl = wordRow.querySelector(".kb-badge") as HTMLElement | null;
+              if (badgeEl) {
+                const newBadgeHtml = renderKnowledgeBadge(word, data);
+                if (newBadgeHtml) {
+                  const temp = document.createElement("div");
+                  temp.innerHTML = newBadgeHtml;
+                  const newBadge = temp.firstElementChild;
+                  if (newBadge) {
+                    wordRow.replaceChild(newBadge, badgeEl);
+                  }
+                } else {
+                  badgeEl.remove();
+                }
+              } else {
+                const newBadgeHtml = renderKnowledgeBadge(word, data);
+                if (newBadgeHtml) {
+                  const temp = document.createElement("div");
+                  temp.innerHTML = newBadgeHtml;
+                  const newBadge = temp.firstElementChild;
+                  const soundBtn = wordRow.querySelector(".sound-btn");
+                  if (newBadge) {
+                    if (soundBtn) {
+                      wordRow.insertBefore(newBadge, soundBtn);
+                    } else {
+                      wordRow.appendChild(newBadge);
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -2044,6 +2089,18 @@ function Index() {
       });
 
       // Update or insert buttons in order
+      const statsWord = getWordFromBreakdown(data) || (document.getElementById("input") as HTMLInputElement | null)?.value || "";
+      const stats = getWordRatingsStats(statsWord, data);
+
+      const getPillarPctHtml = (pKey: string, isActiveTab: boolean) => {
+        const statsKey = (pKey === "translation" || pKey === "meanings") ? "meanings" : pKey;
+        const pct = (stats.pillars as any)[statsKey];
+        if (pct !== undefined && ["meanings", "family", "alternatives", "phrases"].includes(statsKey)) {
+          return `<span class="pillar-pct" style="margin-left: 6px; font-weight: 700; font-size: 11px; background: ${isActiveTab ? "rgba(255,255,255,0.2)" : "rgba(48,89,185,0.08)"}; border: 1px solid ${isActiveTab ? "rgba(255,255,255,0.3)" : "rgba(48,89,185,0.15)"}; padding: 1px 5px; border-radius: 6px; color: ${isActiveTab ? "inherit" : "var(--ll-primary)"}; transition: all 0.2s ease;">${pct}%</span>`;
+        }
+        return "";
+      };
+
       newPillars.forEach((p: any, idx: number) => {
         if (!p.key || !p.label) return; // Skip incomplete pillars
         
@@ -2060,6 +2117,7 @@ function Index() {
           btn.innerHTML = `
             <span class="pillar-icon">${icon}</span>
             <span class="pillar-label">${escapeHtml(p.label)}</span>
+            ${getPillarPctHtml(p.key, isActive)}
           `;
           // Insert it before the first skeleton button, or at the end
           const firstSkeleton = tabsRow!.querySelector(".skeleton-pill");
@@ -2078,6 +2136,28 @@ function Index() {
           const labelSpan = btn.querySelector(".pillar-label");
           if (labelSpan && labelSpan.textContent !== p.label) {
             labelSpan.textContent = p.label;
+          }
+          // Update or insert percentage badge!
+          let pctEl = btn.querySelector(".pillar-pct") as HTMLElement | null;
+          const newPctHtml = getPillarPctHtml(p.key, isActive);
+          if (newPctHtml) {
+            if (pctEl) {
+              const temp = document.createElement("div");
+              temp.innerHTML = newPctHtml;
+              const newPctEl = temp.firstElementChild;
+              if (newPctEl) {
+                btn.replaceChild(newPctEl, pctEl);
+              }
+            } else {
+              const temp = document.createElement("div");
+              temp.innerHTML = newPctHtml;
+              const newPctEl = temp.firstElementChild;
+              if (newPctEl) {
+                btn.appendChild(newPctEl);
+              }
+            }
+          } else if (pctEl) {
+            pctEl.remove();
           }
         }
       });
@@ -2785,6 +2865,7 @@ function Index() {
     let foldersList: Folder[] = [];
     let wordsList: WordRow[] = [];
     let historyList: HistoryRow[] = [];
+    let cardRatingsList: any[] = [];
 
     function safeParseBreakdown(b: any): any {
       if (!b) return {};
@@ -2814,9 +2895,10 @@ function Index() {
           breakdown: h.breakdown ? safeParseBreakdown(h.breakdown) : null,
           updated_at: h.at || new Date().toISOString(),
         }));
+        cardRatingsList = [];
         return;
       }
-      const [foldersRes, wordsRes, historyRes] = await Promise.all([
+      const [foldersRes, wordsRes, historyRes, ratingsRes] = await Promise.all([
         supabase.from("folders").select("id,name,created_at").order("created_at", { ascending: true }),
         supabase
           .from("words")
@@ -2827,6 +2909,10 @@ function Index() {
           .select("id,word,translation,mode,breakdown,updated_at")
           .order("updated_at", { ascending: false })
           .limit(200),
+        (supabase as any)
+          .from("card_ratings")
+          .select("canonical,unit_id,pillar,value,created_at")
+          .order("created_at", { ascending: true })
       ]);
       foldersList = (foldersRes.data || []).map((f: any) => ({ id: f.id, name: f.name }));
       wordsList = (wordsRes.data || []).map((w: any) => ({
@@ -2844,6 +2930,219 @@ function Index() {
         breakdown: safeParseBreakdown(h.breakdown),
         updated_at: h.updated_at,
       }));
+      cardRatingsList = ratingsRes.data || [];
+    }
+
+    function getWordRatingsStats(canonical: string, b: any) {
+      if (!canonical) return { status: "untrained", totalPercent: null, stepLabel: "", pillars: {} };
+
+      const light = b?._light || b || {};
+      const pillarsList = b?.pillars || light?.pillars || [];
+      
+      let meaningsCount = 1;
+      let hasFamily = false;
+      let hasAlternatives = false;
+      let hasPhrases = false;
+
+      if (Array.isArray(pillarsList)) {
+        const meaningsPillar = pillarsList.find((p: any) => p.key === "meanings");
+        if (meaningsPillar && meaningsPillar.content) {
+          const content = meaningsPillar.content.trim();
+          const sections = content
+            .split(/\n(?=\*\*)/)
+            .map((s: string) => s.trim())
+            .filter((s: string) => s.length > 0 && s.startsWith("**"));
+          meaningsCount = Math.max(1, sections.length);
+        }
+        
+        hasFamily = pillarsList.some((p: any) => p.key === "family" && p.content && p.content.trim().length > 0);
+        hasAlternatives = pillarsList.some((p: any) => p.key === "alternatives" && p.content && p.content.trim().length > 0);
+        hasPhrases = pillarsList.some((p: any) => p.key === "phrases" && p.content && p.content.trim().length > 0);
+      }
+
+      const normCanonical = canonical.toLowerCase().trim();
+      const strippedCanonical = normCanonical.replace(/\s+/g, "");
+
+      // Get user ratings for this canonical word
+      const ratings = cardRatingsList.filter(
+        r => r.canonical?.toLowerCase().trim() === normCanonical
+      );
+
+      const latestRatings: Record<string, { value: string; pillar: string }> = {};
+      ratings.forEach(r => {
+        const uId = r.unit_id?.toLowerCase().trim();
+        latestRatings[uId] = { value: r.value, pillar: r.pillar };
+      });
+
+      const hasAnyRatings = Object.keys(latestRatings).length > 0;
+
+      // Find the highest meanings index actually rated
+      let maxRatedMeaningIdx = 0;
+      Object.keys(latestRatings).forEach(uId => {
+        const match = uId.match(/-m(\d+)$/);
+        if (match) {
+          const idx = parseInt(match[1], 10);
+          if (idx > maxRatedMeaningIdx) {
+            maxRatedMeaningIdx = idx;
+          }
+        }
+      });
+      const finalMeaningsCount = Math.max(meaningsCount, maxRatedMeaningIdx);
+
+      const expectedParts: { key: string; check: () => boolean }[] = [];
+
+      // 1. Meanings
+      for (let i = 1; i <= finalMeaningsCount; i++) {
+        expectedParts.push({
+          key: `m${i}`,
+          check: () => {
+            const id1 = `${strippedCanonical}-m${i}`;
+            const id2 = `${normCanonical}-m${i}`; // fallback for space
+            return !!(latestRatings[id1] || latestRatings[id2]);
+          }
+        });
+      }
+
+      // 2. Family
+      const hasFamilyRating = Object.keys(latestRatings).some(uId => 
+        uId === `${strippedCanonical}-fam` || 
+        uId === `${normCanonical}-fam` || 
+        uId.startsWith(`${strippedCanonical}-fam-p`) || 
+        uId.startsWith(`${normCanonical}-fam-p`)
+      );
+      if (hasFamily && (!hasAnyRatings || hasFamilyRating)) {
+        expectedParts.push({
+          key: "family",
+          check: () => hasFamilyRating
+        });
+      }
+
+      // 3. Alternatives
+      const hasAlternativesRating = Object.keys(latestRatings).some(uId => 
+        uId === `${strippedCanonical}-alt` || 
+        uId === `${normCanonical}-alt` || 
+        uId.startsWith(`${strippedCanonical}-alt-p`) || 
+        uId.startsWith(`${normCanonical}-alt-p`)
+      );
+      if (hasAlternatives && (!hasAnyRatings || hasAlternativesRating)) {
+        expectedParts.push({
+          key: "alternatives",
+          check: () => hasAlternativesRating
+        });
+      }
+
+      // 4. Phrases
+      const hasPhrasesRating = Object.keys(latestRatings).some(uId => 
+        uId === `${strippedCanonical}-phrases` || 
+        uId === `${strippedCanonical}-phrase` || 
+        uId === `${normCanonical}-phrases` || 
+        uId === `${normCanonical}-phrase` || 
+        uId.startsWith(`${strippedCanonical}-phrases-p`) || 
+        uId.startsWith(`${strippedCanonical}-phrase-p`) || 
+        uId.startsWith(`${normCanonical}-phrases-p`) || 
+        uId.startsWith(`${normCanonical}-phrase-p`)
+      );
+      if (hasPhrases && (!hasAnyRatings || hasPhrasesRating)) {
+        expectedParts.push({
+          key: "phrases",
+          check: () => hasPhrasesRating
+        });
+      }
+
+      // Count rated parts
+      let ratedCount = 0;
+      expectedParts.forEach(part => {
+        if (part.check()) {
+          ratedCount++;
+        }
+      });
+
+      const totalCount = expectedParts.length;
+
+      // Status
+      let status: "untrained" | "in_training" | "trained" = "untrained";
+      if (ratedCount === 0) {
+        status = "untrained";
+      } else if (ratedCount < totalCount) {
+        status = "in_training";
+      } else {
+        status = "trained";
+      }
+
+      // Average score of rated elements
+      let scoreSum = 0;
+      let scoreCount = 0;
+      const pillarSums: Record<string, number> = {};
+      const pillarCounts: Record<string, number> = {};
+
+      const valMap: Record<string, number> = {
+        dont_know: 0,
+        weak: 25,
+        medium: 50,
+        good: 75,
+        know: 100
+      };
+
+      Object.values(latestRatings).forEach(info => {
+        if (info.value !== "skip") {
+          const valPercent = valMap[info.value];
+          if (valPercent !== undefined) {
+            scoreSum += valPercent;
+            scoreCount++;
+
+            const pKey = info.pillar || "meanings";
+            pillarSums[pKey] = (pillarSums[pKey] || 0) + valPercent;
+            pillarCounts[pKey] = (pillarCounts[pKey] || 0) + 1;
+          }
+        }
+      });
+
+      const totalPercent = scoreCount > 0 ? Math.round(scoreSum / scoreCount) : null;
+
+      const pillars: Record<string, number> = {};
+      Object.keys(pillarSums).forEach(pKey => {
+        pillars[pKey] = Math.round(pillarSums[pKey] / pillarCounts[pKey]);
+      });
+
+      let stepLabel = "";
+      if (totalPercent !== null) {
+        if (totalPercent <= 20) stepLabel = "не знаю";
+        else if (totalPercent <= 40) stepLabel = "слабо";
+        else if (totalPercent <= 60) stepLabel = "средне";
+        else if (totalPercent <= 80) stepLabel = "хорошо";
+        else stepLabel = "знаю";
+      }
+
+      return {
+        status,
+        totalPercent,
+        stepLabel,
+        pillars
+      };
+    }
+
+    function renderKnowledgeBadge(word: string, b?: any) {
+      if (!currentUserId) return "";
+      
+      let breakdownObj = b;
+      if (!breakdownObj) {
+        const saved = wordsList.find(w => w.word?.toLowerCase().trim() === word?.toLowerCase().trim());
+        if (saved) breakdownObj = saved.breakdown;
+      }
+      if (!breakdownObj) {
+        const hist = historyList.find(h => h.word?.toLowerCase().trim() === word?.toLowerCase().trim());
+        if (hist) breakdownObj = hist.breakdown;
+      }
+
+      const stats = getWordRatingsStats(word, breakdownObj);
+
+      if (stats.status === "trained" && stats.totalPercent !== null) {
+        return `<span class="kb-badge" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: rgba(48,89,185,0.06); border: 1px solid rgba(48,89,185,0.12); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ll-primary); margin-left: 8px;" title="Процент знания слова"><span class="kb-pct">${stats.totalPercent}%</span> <span class="kb-lbl">${stats.stepLabel}</span></span>`;
+      } else if (stats.status === "in_training") {
+        return `<span class="kb-badge untrained" style="display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ll-outline); margin-left: 8px;">в процессе тренировки</span>`;
+      } else {
+        return `<span class="kb-badge untrained" style="display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ll-outline); margin-left: 8px;">ещё не тренировал</span>`;
+      }
     }
 
     // ===== i18n =====
@@ -3202,6 +3501,7 @@ function Index() {
                   </button>
                   <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
                     <div class="wc-word">${escapeHtml(h.word)}</div>
+                    ${renderKnowledgeBadge(h.word, h.breakdown)}
                     <button class="sound-btn" data-text="${escapeHtml(h.word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
                       <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
                     </button>
@@ -3875,6 +4175,7 @@ function Index() {
                 </button>
                 <div class="wc-word-row" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 56px;">
                   <div class="wc-word">${escapeHtml(w.word)}</div>
+                  ${renderKnowledgeBadge(w.word, b)}
                   ${folderName ? `<span class="wc-folder-badge" style="display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.45); color: var(--ll-on-surface-variant); border: 1px solid rgba(255, 255, 255, 0.7); text-transform: uppercase; letter-spacing: 0.05em;">${escapeHtml(folderName)}</span>` : ""}
                   <button class="sound-btn" data-text="${escapeHtml(w.word)}" title="${escapeHtml(currentLang === "en" ? "Listen" : "Прослушать")}" style="background: transparent; border: none; cursor: pointer; color: var(--ll-outline); display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; transition: all 0.2s ease;">
                     <span class="material-symbols-outlined" style="font-size: 18px;">volume_up</span>
